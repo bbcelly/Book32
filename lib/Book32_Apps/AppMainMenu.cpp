@@ -419,9 +419,18 @@ void AppMainMenu::update() {
     if (now - _lastBatteryPoll >= 10000) {
         _lastBatteryPoll = now;
         BatteryStatus status = BatteryMgr::getInstance().refreshNow();
+#if BOOK32_HAS_TOUCH
         bool changed = status.charging != _lastBatteryStatus.charging ||
                        status.percentage != _lastBatteryStatus.percentage ||
                        fabsf(status.voltage - _lastBatteryStatus.voltage) >= 0.03f;
+#else
+        // The XIAO's ADC reading wobbles by a percent or two, and every
+        // partial update drives the whole 7.5" panel. Only repaint the
+        // icon-only indicator for a visible change.
+        bool changed = status.charging != _lastBatteryStatus.charging ||
+                       abs(status.percentage - _lastBatteryStatus.percentage) >= 5 ||
+                       (status.percentage == 0) != (_lastBatteryStatus.percentage == 0);
+#endif
         if (changed) {
             _lastBatteryStatus = status;
             _selectionOnlyRedraw = false;
@@ -449,6 +458,18 @@ void AppMainMenu::draw() {
     const int COLS = 2;
     const int ROW_HEIGHT = 240;
     const int START_Y = 180;
+
+#if !BOOK32_HAS_TOUCH
+    // Partial updates slowly accumulate ghosting on the 7.5" panel; clear it
+    // with an occasional full refresh, as the reader does every N pages.
+    if (!_firstDraw && ++_partialRefreshes >= MENU_FULL_REFRESH_INTERVAL) {
+        _firstDraw = true;
+        _selectionOnlyRedraw = false;
+        _batteryOnlyRedraw = false;
+        _footerOnlyRedraw = false;
+    }
+    if (_firstDraw) _partialRefreshes = 0;
+#endif
 
     // Use full refresh only on first draw, partial refresh for navigation
     if (_firstDraw) {

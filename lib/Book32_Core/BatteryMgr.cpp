@@ -277,25 +277,14 @@ void BatteryMgr::updateCache(bool clearStaleCharging) {
     // Calculate percentage (LiPo: 3.0V = 0%, 4.2V = 100%)
     int percentage = voltageToPercentage(voltage);
 
-    float previousVoltage = _previousVoltage;
-
-    // Preserve charging state from trend analysis unless this is an explicit
-    // UI refresh, where a stale "charging" label is worse than showing full.
+    // Charging is decided only by the 90s trend analysis in update(). The ADC
+    // wobbles by more than 20mV between single reads, so read-to-read
+    // detection flipped the state (and repainted the panel) constantly. An
+    // explicit UI refresh drops the label only once no rise has been seen for
+    // a few minutes.
     bool currentCharging = _cachedStatus.charging;
-    if (clearStaleCharging) {
-        currentCharging = false;
-    }
-
-    // Quick charging detection: if voltage increased since last read, we're likely charging
-    if (previousVoltage > 0 && voltage > previousVoltage + 0.02f) {
-        // Voltage increased by >20mV since last read - likely charging
-        if (!currentCharging) {
-            currentCharging = true;
-            Serial.printf("Battery: Quick charge detect (%.3fV -> %.3fV, +%.3fV)\n",
-                         previousVoltage, voltage, voltage - previousVoltage);
-        }
-        _lastChargingTime = millis();
-    } else if (previousVoltage > 0 && voltage < previousVoltage - 0.01f) {
+    if (clearStaleCharging && currentCharging &&
+        millis() - _lastChargingTime >= STALE_CHARGING_MS) {
         currentCharging = false;
     }
 

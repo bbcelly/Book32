@@ -72,6 +72,7 @@ private:
     static const int CRITICAL_CONFIRM_COUNT = 3;     // Require N consecutive critical readings
     static const float SPIKE_REJECT_THRESHOLD;       // Max plausible V change per read (0.5V)
     static const unsigned long CHARGING_GRACE_MS = 60000;  // 60s grace after charging detected
+    static const unsigned long STALE_CHARGING_MS = 180000; // Drop "charging" after 3 min with no rise
 
     // Idle sleep settings
     int _sleepTimeoutMinutes;          // 0 = disabled

@@ -146,9 +146,15 @@ void WebMgr::mountFilesystems() {
     bool ebookOK = beginEbookStorage(partitionLooksBlank(ebooksPart));
 
     if (ebookOK) {
+#if BOOK32_VERBOSE_BOOT_LOG
+        // usedBytes() walks the whole filesystem (every book on internal
+        // flash), so only pay for it when diagnosing storage.
         Serial.printf("EbookFS OK: %llu / %llu bytes used (%s)\n",
                       ebookStorageUsedBytes(), ebookStorageTotalBytes(),
                       ebookStorageUsesSD() ? "MicroSD" : "internal flash");
+#else
+        Serial.printf("EbookFS OK (%s)\n", ebookStorageUsesSD() ? "MicroSD" : "internal flash");
+#endif
         listFiles(EbookFS, "/", 1);
     } else {
         Serial.println("ERROR: EbookFS mount failed! Ebooks partition is not available.");

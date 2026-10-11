@@ -13,6 +13,13 @@ typedef LilygoDisplay Book32Display;
 typedef StickyDisplay Book32Display;
 #else
 typedef GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT> Book32Display;
+// The 7.5" panel blocks for ~1.6s per partial and ~4.2s per full refresh, so
+// boot-screen frames are drawn on a worker task while startup continues.
+#define BOOK32_ASYNC_BOOT_SCREEN 1
+#endif
+
+#ifndef BOOK32_ASYNC_BOOT_SCREEN
+#define BOOK32_ASYNC_BOOT_SCREEN 0
 #endif
 
 class DisplayMgr {
@@ -27,6 +34,9 @@ public:
     void clear();
     void fullRefresh();
     void showBootScreen(uint8_t progress, const char* status);
+    // Waits until the latest boot-screen status is on the panel and hands the
+    // display back to the caller. Call before the first app draw.
+    void finishBootScreen();
 
     // Display orientation. Only the two portrait orientations are supported so
     // that every screen layout (480x800) stays valid: 3 = buttons on the right
@@ -42,4 +52,18 @@ private:
     Book32Display display;
     bool _bootScreenActive = false;
     int _rotation = 3;  // Default: portrait, buttons on the right
+
+    void renderBootScreen(uint8_t progress, const char* status);
+#if BOOK32_ASYNC_BOOT_SCREEN
+    // Only the newest requested status is kept; statuses superseded while the
+    // panel is busy are skipped instead of making startup wait for them.
+    static void bootScreenTask(void* parameter);
+    void waitForBootScreenIdle();
+    SemaphoreHandle_t _bootLock = nullptr;
+    volatile bool _bootTaskRunning = false;
+    bool _bootPending = false;
+    bool _bootFinished = false;
+    uint8_t _bootProgress = 0;
+    char _bootStatus[40] = "";
+#endif
 };

@@ -69,6 +69,10 @@ static void networkStartupWork(void* parameter) {
     // range. On timeout autoConnect returns false and the main menu brings up
     // the InkDeck management hotspot instead.
     gWifiManager->setConfigPortalTimeout(120);
+    // Without this, an out-of-range saved network waits on the ESP's default
+    // 60s connect timeout before the portal opens. Match the touch boards'
+    // ~10s saved-network attempt with a little headroom.
+    gWifiManager->setConnectTimeout(15);
     bool connected = gWifiManager->autoConnect("InkDeck-Setup");
 #endif
 
@@ -242,10 +246,12 @@ void setup() {
 
     if (readerApp->hasBootResume()) {
         displayMgr.showBootScreen(100, "Opening reader");
+        displayMgr.finishBootScreen();
         readerApp->resumeSavedBookOnStart();
         appMgr.switchTo(1);
     } else {
         displayMgr.showBootScreen(100, "Opening menu");
+        displayMgr.finishBootScreen();
         appMgr.switchTo(0);
     }
 
@@ -259,4 +265,5 @@ void loop() {
     WebMgr::getInstance().update();
     BatteryMgr::getInstance().update();  // Check charging state and critical battery
     BatteryMgr::getInstance().drawStatusIndicator();  // Update charging indicator on e-ink (partial)
+    DisplayMgr::getInstance().update();  // Power the panel down between updates
 }

@@ -2,6 +2,7 @@
 #include "../../include/Config.h"
 #include "Book32FS.h"
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSans12pt7b.h>
 #include <Fonts/FreeSansBold18pt7b.h>
@@ -40,6 +41,30 @@ static void drawBootProgress(Book32Display& display, uint8_t progress, const cha
     drawCenteredText(display, status, &FreeSans12pt7b, barY + 116, GxEPD_BLACK);
 }
 
+// The orientation is mirrored into NVS so the very first boot frame is drawn
+// the right way up; /display_config.json (on ebook storage) stays the source
+// of truth and is re-applied by loadDisplaySettings() once storage mounts.
+static const char* ROTATION_PREFS_NAMESPACE = "display";
+static const char* ROTATION_PREFS_KEY = "rotation";
+
+static int loadCachedRotation() {
+    Preferences prefs;
+    int rotation = 3;
+    if (prefs.begin(ROTATION_PREFS_NAMESPACE, true)) {
+        rotation = prefs.getInt(ROTATION_PREFS_KEY, 3);
+        prefs.end();
+    }
+    return (rotation == 1 || rotation == 3) ? rotation : 3;
+}
+
+static void saveCachedRotation(int rotation) {
+    Preferences prefs;
+    if (prefs.begin(ROTATION_PREFS_NAMESPACE, false)) {
+        prefs.putInt(ROTATION_PREFS_KEY, rotation);
+        prefs.end();
+    }
+}
+
 // Constructor with Pin mapping
 // GxEPD2_420(int16_t cs, int16_t dc, int16_t rst, int16_t busy)
 #if BOOK32_HAS_TOUCH
@@ -58,7 +83,14 @@ void DisplayMgr::init() {
 #if !defined(BOARD_LILYGO_T5S3_PRO)
     SPI.begin(EPD_SCK, EPD_MISO, EPD_MOSI, EPD_CS);
 #endif
-    
+#if !BOOK32_HAS_TOUCH
+    // GxEPD2 defaults to 4MHz and sends 48KB frames byte by byte. The UC8179
+    // controller accepts writes well above 10MHz; stay conservative for the
+    // DIY kit's wiring.
+    display.epd2.selectSPI(SPI, SPISettings(10000000, MSBFIRST, SPI_MODE0));
+#endif
+
+    _rotation = loadCachedRotation();
     display.init(115200, true, 10, false);
 
     display.setRotation(_rotation); // Portrait mode (480x800); _rotation = 1 or 3
@@ -72,7 +104,12 @@ void DisplayMgr::setRotation(int rotation) {
     // Constrain to the two portrait orientations so layouts never break.
     if (rotation != 1 && rotation != 3) rotation = 3;
     bool changed = (rotation != _rotation);
+#if BOOK32_ASYNC_BOOT_SCREEN
+    // Never rotate the canvas underneath a boot frame that is being drawn.
+    if (changed) waitForBootScreenIdle();
+#endif
     _rotation = rotation;
+    if (changed) saveCachedRotation(rotation);
     display.setRotation(_rotation);
     // Only invalidate the boot screen when the orientation actually changes, so
     // a no-op load at boot doesn't trigger a full refresh mid-sequence. Live
@@ -128,6 +165,67 @@ void DisplayMgr::showBootScreen(uint8_t progress, const char* status) {
     if (progress > 100) progress = 100;
     if (!status) status = "";
 
+#if BOOK32_ASYNC_BOOT_SCREEN
+    if (!_bootFinished) {
+        if (!_bootLock) _bootLock = xSemaphoreCreateMutex();
+        if (_bootLock) {
+            xSemaphoreTake(_bootLock, portMAX_DELAY);
+            _bootProgress = progress;
+            strlcpy(_bootStatus, status, sizeof(_bootStatus));
+            _bootPending = true;
+            bool startWorker = !_bootTaskRunning;
+            if (startWorker) _bootTaskRunning = true;
+            xSemaphoreGive(_bootLock);
+
+            if (!startWorker) return;
+            if (xTaskCreatePinnedToCore(bootScreenTask, "BootScreen", 6144, this, 1, nullptr, 1) == pdPASS) {
+                return;
+            }
+            // No worker: fall through and draw this status synchronously.
+            xSemaphoreTake(_bootLock, portMAX_DELAY);
+            _bootTaskRunning = false;
+            _bootPending = false;
+            xSemaphoreGive(_bootLock);
+        }
+    }
+#endif
+    renderBootScreen(progress, status);
+}
+
+#if BOOK32_ASYNC_BOOT_SCREEN
+void DisplayMgr::bootScreenTask(void* parameter) {
+    DisplayMgr* self = static_cast<DisplayMgr*>(parameter);
+    for (;;) {
+        xSemaphoreTake(self->_bootLock, portMAX_DELAY);
+        if (!self->_bootPending) {
+            self->_bootTaskRunning = false;
+            xSemaphoreGive(self->_bootLock);
+            break;
+        }
+        uint8_t progress = self->_bootProgress;
+        char status[sizeof(self->_bootStatus)];
+        strlcpy(status, self->_bootStatus, sizeof(status));
+        self->_bootPending = false;
+        xSemaphoreGive(self->_bootLock);
+
+        self->renderBootScreen(progress, status);
+    }
+    vTaskDelete(nullptr);
+}
+
+void DisplayMgr::waitForBootScreenIdle() {
+    while (_bootTaskRunning) delay(5);
+}
+#endif
+
+void DisplayMgr::finishBootScreen() {
+#if BOOK32_ASYNC_BOOT_SCREEN
+    waitForBootScreenIdle();
+    _bootFinished = true;
+#endif
+}
+
+void DisplayMgr::renderBootScreen(uint8_t progress, const char* status) {
     int16_t screenW = display.width();
     int16_t screenH = display.height();
 
@@ -178,5 +276,11 @@ void DisplayMgr::showBootScreen(uint8_t progress, const char* status) {
 }
 
 void DisplayMgr::update() {
-    // E-ink usually updates on demand, not every loop
+#if !BOOK32_HAS_TOUCH
+    // GxEPD2 only powers the 7.5" panel down after a full refresh; partial
+    // updates leave its high-voltage booster on indefinitely, which slowly
+    // darkens the panel edge. powerOff() is a no-op when already off; the
+    // next partial update re-arms the booster (~150ms).
+    display.powerOff();
+#endif
 }
