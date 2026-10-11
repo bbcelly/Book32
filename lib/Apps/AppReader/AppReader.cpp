@@ -20,6 +20,7 @@
 
 static const char* READER_PROGRESS_PATH = "/reader_progress.json";
 static const uint32_t READER_LAYOUT_VERSION = 5;
+static const unsigned long PROGRESS_SAVE_DELAY_MS = 2000;
 
 static uint32_t fingerprintBook(const String& path, uint32_t& sizeOut) {
     sizeOut = 0;
@@ -501,6 +502,7 @@ void AppReader::handleInput(InputAction action) {
             }
         }
     } else if (_state == VIEW_READING) {
+        _pageTurnStartedAt = millis();
         if (action == INPUT_NEXT) nextPage();
         else if (action == INPUT_PREV) prevPage();
         else if (action == INPUT_SELECT) {
@@ -515,6 +517,7 @@ void AppReader::handleInput(InputAction action) {
 
 void AppReader::handleTouch(uint16_t x, uint16_t y) {
     if (_state == VIEW_READING) {
+        _pageTurnStartedAt = millis();
         // Invisible page-turn zones cover the outer thirds of the page.
         if (x < SCREEN_WIDTH / 3) prevPage();
         else if (x >= (SCREEN_WIDTH * 2) / 3) nextPage();
@@ -677,7 +680,13 @@ bool AppReader::loadBookProgress(const String& path, int& chapter, PagePointer& 
     return true;
 }
 
+void AppReader::queueProgressSave() {
+    _progressSavePending = true;
+    _lastPageTurnAt = millis();
+}
+
 void AppReader::saveReadingProgress(bool resumeOnBoot) {
+    _progressSavePending = false;
     if (_currentBookPath.length() == 0 || _state != VIEW_READING) return;
 
     DynamicJsonDocument doc(4096);
@@ -733,7 +742,10 @@ void AppReader::markProgressInactive() {
 void AppReader::closeBook(bool markInactive) {
     if (markInactive && _state == VIEW_READING) {
         saveReadingProgress(false);
+    } else if (_progressSavePending && _state == VIEW_READING) {
+        saveReadingProgress(true);
     }
+    _progressSavePending = false;
     if (_epubLoader) { _epubLoader->close(); delete _epubLoader; _epubLoader = nullptr; }
     if (_textRenderer) { delete _textRenderer; _textRenderer = nullptr; }
     _pageHistory.clear(); _chapterPageCounts.clear(); _totalBookPages = 0;
@@ -802,7 +814,7 @@ void AppReader::nextPage() {
         // Clear cache since we're moving to a new page
         _textRenderer->clearCache();
         _currentPageRenderValid = false;
-        saveReadingProgress(true);
+        queueProgressSave();
         _needsRedraw = true;
     } else {
         // End of chapter - advance to next
@@ -813,7 +825,7 @@ void AppReader::nextPage() {
             _pageHistory.push_back(_currentPagePointer);
             _globalPageNumber++; // Next page in next chapter
             loadChapter(_currentChapter + 1);
-            saveReadingProgress(true);
+            queueProgressSave();
         }
         // If at end of book, do nothing
     }
@@ -826,7 +838,7 @@ void AppReader::prevPage() {
         if (_globalPageNumber > 1) _globalPageNumber--; // Decrement global page counter
         if (_textRenderer) _textRenderer->clearCache();
         _currentPageRenderValid = false;
-        saveReadingProgress(true);
+        queueProgressSave();
         _needsRedraw = true;
     } else {
         // Go to previous chapter
@@ -837,7 +849,7 @@ void AppReader::prevPage() {
             if (_globalPageNumber > 1) _globalPageNumber--; // Decrement for prev chapter
             _currentPageRenderValid = false;
             prevChapter();
-            saveReadingProgress(true);
+            queueProgressSave();
         }
     }
 }
@@ -1082,7 +1094,8 @@ void AppReader::drawLibrary() {
 void AppReader::drawReading() {
     DisplayMgr& dispMgr = DisplayMgr::getInstance();
     Book32Display& display = dispMgr.getDisplay();
-    
+    const unsigned long drawStartedAt = millis();
+
     // Check if we need a full refresh
     if (_readingFirstDraw || _pageTurnsSinceRefresh >= _refreshEveryNPages) {
         Serial.println("AppReader: Full Refresh Cycle");
@@ -1161,10 +1174,22 @@ void AppReader::drawReading() {
         }
         display.setTextSize(1);
     } while (display.nextPage());
+
+    if (_pageTurnStartedAt) {
+        const unsigned long now = millis();
+        Serial.printf("AppReader: page turn %lums (input to draw %lums, render + panel %lums)\n",
+                      now - _pageTurnStartedAt, drawStartedAt - _pageTurnStartedAt, now - drawStartedAt);
+        _pageTurnStartedAt = 0;
+    }
 }
 
 void AppReader::update() {
     // Library rendering is static unless input changes selection.
+    if (_progressSavePending && millis() - _lastPageTurnAt >= PROGRESS_SAVE_DELAY_MS) {
+        const unsigned long startedAt = millis();
+        saveReadingProgress(true);
+        Serial.printf("AppReader: progress saved in %lums\n", millis() - startedAt);
+    }
 }
 
 void AppReader::applyFontSize(int pt) {

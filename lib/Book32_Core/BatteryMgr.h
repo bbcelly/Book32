@@ -35,6 +35,7 @@ public:
     // Idle sleep management
     void loadSleepSettings();             // Load from EbookFS
     void resetIdleTimer();                // Call when user interacts
+    unsigned long getLastActivityTime() const { return _lastActivityTime; }
     void enterIdleSleep();                // Display message and sleep
     void setReaderActive(bool active);    // Enables reader-only idle CPU scaling
 

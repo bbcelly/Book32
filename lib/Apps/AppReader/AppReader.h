@@ -107,6 +107,12 @@ private:
     bool loadBookProgress(const String& path, int& chapter, PagePointer& pointer, int& globalPage,
                           uint32_t& visibleOffset, bool& hasVisibleOffset);
     void saveReadingProgress(bool resumeOnBoot);
+    // Page turns defer the progress write until the page is on screen and
+    // turning has paused; closeBook() flushes it on every exit path.
+    void queueProgressSave();
+    bool _progressSavePending = false;
+    unsigned long _lastPageTurnAt = 0;
+    unsigned long _pageTurnStartedAt = 0;  // For the per-turn timing log
     void markProgressInactive();
     void closeBook(bool markInactive = true);
     void loadChapter(int chapterIndex);

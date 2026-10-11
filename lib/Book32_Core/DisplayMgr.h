@@ -12,8 +12,10 @@ typedef LilygoDisplay Book32Display;
 #include "StickyDisplay.h"
 typedef StickyDisplay Book32Display;
 #else
-typedef GxEPD2_BW<GxEPD2_750_T7, GxEPD2_750_T7::HEIGHT> Book32Display;
-// The 7.5" panel blocks for ~1.6s per partial and ~4.2s per full refresh, so
+#include "GxEPD2_750_T7_Fast.h"
+// GxEPD2_750_T7 with a shorter partial-update waveform (~0.9s instead of 1.6s).
+typedef GxEPD2_BW<GxEPD2_750_T7_Fast, GxEPD2_750_T7_Fast::HEIGHT> Book32Display;
+// The 7.5" panel blocks for ~0.9s per partial and ~1.6s per full refresh, so
 // boot-screen frames are drawn on a worker task while startup continues.
 #define BOOK32_ASYNC_BOOT_SCREEN 1
 #endif

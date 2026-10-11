@@ -1,6 +1,6 @@
 {
     "name":  "InkDeck for Book32",
-    "version":  "1.3.3",
+    "version":  "1.3.4",
     "new_install_prompt_erase":  true,
     "new_install_improv_wait_time":  0,
     "builds":  [
@@ -9,23 +9,23 @@
                        "parts":  [
                                      {
                                          "offset":  0,
-                                         "path":  "firmware/book32-bootloader-v1.3.3.bin"
+                                         "path":  "firmware/book32-bootloader-v1.3.4.bin"
                                      },
                                      {
                                          "offset":  32768,
-                                         "path":  "firmware/book32-partitions-v1.3.3.bin"
+                                         "path":  "firmware/book32-partitions-v1.3.4.bin"
                                      },
                                      {
                                          "offset":  57344,
-                                         "path":  "firmware/book32-boot-app-v1.3.3.bin"
+                                         "path":  "firmware/book32-boot-app-v1.3.4.bin"
                                      },
                                      {
                                          "offset":  65536,
-                                         "path":  "firmware/firmware-v1.3.3.bin"
+                                         "path":  "firmware/firmware-v1.3.4.bin"
                                      },
                                      {
                                          "offset":  5308416,
-                                         "path":  "firmware/littlefs-v1.3.3.bin"
+                                         "path":  "firmware/littlefs-v1.3.4.bin"
                                      }
                                  ],
                        "improv":  false

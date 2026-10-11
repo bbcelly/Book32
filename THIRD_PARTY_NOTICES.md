@@ -107,3 +107,15 @@ https://github.com/bitbank2/bb_epaper
 Copyright (c) 2024 BitBank Software, Inc. `bb_epaper` is distributed under the
 GNU General Public License, version 3 or later. Its complete license text and
 corresponding source are available in the linked upstream repository.
+
+## GxEPD2
+
+The Book32 display driver uses Jean-Marc Zingg's `GxEPD2` library:
+https://github.com/ZinggJM/GxEPD2
+
+`lib/Book32_Core/GxEPD2_750_T7_Fast.*` is a modified copy of GxEPD2 1.6.7's
+`GxEPD2_750_T7` panel driver, renamed, with shorter partial-update waveform
+phases and the forced-temperature fast full update from its `GxEPD2_750_GDEY075T7`
+driver. `GxEPD2` is distributed under the GNU General Public License, version 3.
+Its complete license text and corresponding source are available in the linked
+upstream repository.

@@ -1,6 +1,7 @@
 #include "DisplayMgr.h"
 #include "../../include/Config.h"
 #include "Book32FS.h"
+#include "BatteryMgr.h"
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <Fonts/FreeSans9pt7b.h>
@@ -44,6 +45,10 @@ static void drawBootProgress(Book32Display& display, uint8_t progress, const cha
 // The orientation is mirrored into NVS so the very first boot frame is drawn
 // the right way up; /display_config.json (on ebook storage) stays the source
 // of truth and is re-applied by loadDisplaySettings() once storage mounts.
+#if !BOOK32_HAS_TOUCH
+static const unsigned long PANEL_POWER_HOLD_MS = 10000;
+#endif
+
 static const char* ROTATION_PREFS_NAMESPACE = "display";
 static const char* ROTATION_PREFS_KEY = "rotation";
 
@@ -70,7 +75,7 @@ static void saveCachedRotation(int rotation) {
 #if BOOK32_HAS_TOUCH
 DisplayMgr::DisplayMgr() : display() {}
 #else
-DisplayMgr::DisplayMgr() : display(GxEPD2_750_T7(EPD_CS, EPD_DC, EPD_RST, EPD_BUSY)) {}
+DisplayMgr::DisplayMgr() : display(GxEPD2_750_T7_Fast(EPD_CS, EPD_DC, EPD_RST, EPD_BUSY)) {}
 #endif
 
 DisplayMgr& DisplayMgr::getInstance() {
@@ -279,8 +284,11 @@ void DisplayMgr::update() {
 #if !BOOK32_HAS_TOUCH
     // GxEPD2 only powers the 7.5" panel down after a full refresh; partial
     // updates leave its high-voltage booster on indefinitely, which slowly
-    // darkens the panel edge. powerOff() is a no-op when already off; the
-    // next partial update re-arms the booster (~150ms).
-    display.powerOff();
+    // darkens the panel edge. Keep it armed briefly after a button press so
+    // quick page turns skip the ~150ms re-arm, then power it down.
+    // powerOff() is a no-op when already off.
+    if (millis() - BatteryMgr::getInstance().getLastActivityTime() >= PANEL_POWER_HOLD_MS) {
+        display.powerOff();
+    }
 #endif
 }
