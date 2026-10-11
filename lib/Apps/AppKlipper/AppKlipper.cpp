@@ -81,14 +81,9 @@ void AppKlipper::start() {
     _firstDraw = true;
     _scanTaskHandle = NULL;
 
-    // Unsubscribe async_tcp from WDT for the entire Klipper session.
-    // All HTTP requests (scan + status fetch) cause lwIP contention
-    // that prevents async_tcp from feeding its watchdog.
-    _asyncTcpTask = xTaskGetHandle("async_tcp");
-    if (_asyncTcpTask != NULL) {
-        esp_task_wdt_delete(_asyncTcpTask);
-        Serial.println("async_tcp unsubscribed from WDT (Klipper active)");
-    }
+    // Do not touch async_tcp's watchdog subscription. AsyncTCP adds itself only
+    // while handling an event and removes itself afterwards; adding it from
+    // here left it subscribed while idle and rebooted the device ~5s later.
 
     // Modem sleep only wakes the radio every beacon interval, which makes the
     // first contact with each host slow enough to miss. Keep it awake here.
@@ -123,13 +118,6 @@ void AppKlipper::stop() {
     _printers.clear();
     _foundPrinters.clear();
     if (_restoreWifiSleep) WiFi.setSleep(true);
-
-    // Re-subscribe async_tcp to WDT now that Klipper is inactive
-    if (_asyncTcpTask != NULL) {
-        esp_task_wdt_add(_asyncTcpTask);
-        Serial.println("async_tcp re-subscribed to WDT (Klipper stopped)");
-        _asyncTcpTask = NULL;
-    }
 }
 
 void AppKlipper::handleInput(InputAction action) {
