@@ -22,6 +22,45 @@ static const char* READER_PROGRESS_PATH = "/reader_progress.json";
 static const uint32_t READER_LAYOUT_VERSION = 5;
 static const unsigned long PROGRESS_SAVE_DELAY_MS = 2000;
 
+// Library rows. Book32's 7.5" panel has the lowest pixel density, so it uses
+// larger covers (4 books per screen) to keep cover titles readable.
+#if BOOK32_HAS_TOUCH
+static const int LIBRARY_ITEM_HEIGHT = 110;
+static const int LIBRARY_COVER_WIDTH = 60;
+static const int LIBRARY_COVER_HEIGHT = 80;
+#else
+static const int LIBRARY_ITEM_HEIGHT = 150;
+static const int LIBRARY_COVER_WIDTH = 90;
+static const int LIBRARY_COVER_HEIGHT = 120;
+#endif
+
+static const char* COVER_CACHE_DIR = "/.covers";
+static const uint32_t COVER_CACHE_MAGIC = 0x43323342;  // B32C
+// Bump when the cover decoding pipeline changes so old thumbnails re-render.
+static const uint16_t COVER_CACHE_VERSION = 1;
+
+struct __attribute__((packed)) CoverCacheHeader {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t maxWidth;
+    uint16_t maxHeight;
+    uint16_t width;   // 0 when the book has no decodable cover
+    uint16_t height;
+    uint32_t bookSize;
+    uint32_t bookModified;
+};
+
+static String coverCachePath(const String& bookPath) {
+    uint32_t hash = 2166136261u;
+    for (size_t i = 0; i < bookPath.length(); i++) {
+        hash ^= static_cast<uint8_t>(bookPath[i]);
+        hash *= 16777619u;
+    }
+    char name[24];
+    snprintf(name, sizeof(name), "/%08lx.bin", static_cast<unsigned long>(hash));
+    return String(COVER_CACHE_DIR) + name;
+}
+
 static uint32_t fingerprintBook(const String& path, uint32_t& sizeOut) {
     sizeOut = 0;
     File file = EbookFS.open(path, FILE_READ);
@@ -225,7 +264,7 @@ struct LibraryDirtyRect {
 static LibraryDirtyRect libraryItemRect(int index, int screenW) {
     const int HEADER_H = 76;
     const int BACK_ITEM_HEIGHT = 48;
-    const int ITEM_HEIGHT = 110;
+    const int ITEM_HEIGHT = LIBRARY_ITEM_HEIGHT;
     if (index < 0) {
         return {14, HEADER_H, screenW - 28, BACK_ITEM_HEIGHT + 4};
     }
@@ -391,8 +430,11 @@ void AppReader::scanBooks() {
         if(fileNameLower.endsWith(".epub")) {
             BookEntry entry;
             entry.path = "/" + fileName;
+            entry.size = static_cast<uint32_t>(file.size());
+            entry.modified = static_cast<uint32_t>(file.getLastWrite());
             for (const BookEntry& previous : previousBooks) {
-                if (previous.path == entry.path) {
+                if (previous.path == entry.path && previous.size == entry.size &&
+                    previous.modified == entry.modified) {
                     entry.coverAttempted = previous.coverAttempted;
                     entry.cover = previous.cover;
                     break;
@@ -401,6 +443,7 @@ void AppReader::scanBooks() {
             auto meta = metadata.find(fileName);
             String displayTitle = meta != metadata.end() ? meta->second : "";
             if (displayTitle.length() == 0) {
+                showLibraryLoading("Finding books...", 15);
                 EpubLoader loader;
                 String fullPath = "/ebooks/" + fileName;
                 if (loader.open(fullPath.c_str(), false)) {
@@ -428,6 +471,75 @@ void AppReader::scanBooks() {
     }
     _previousBookIndex = _selectedBookIndex;
     if (metadataChanged) saveBookMetadata(metadata);
+    pruneCoverCache();
+}
+
+void AppReader::showLibraryLoading(const char* status, uint8_t progress) {
+    drawLoadingScreen("Opening eReader", status, progress, !_libraryLoadingShown);
+    _libraryLoadingShown = true;
+}
+
+bool AppReader::loadCachedCover(BookEntry& book, int width, int height) {
+    File file = EbookFS.open(coverCachePath(book.path), FILE_READ);
+    if (!file) return false;
+    CoverCacheHeader header = {};
+    bool valid = file.read(reinterpret_cast<uint8_t*>(&header), sizeof(header)) == sizeof(header) &&
+                 header.magic == COVER_CACHE_MAGIC && header.version == COVER_CACHE_VERSION &&
+                 header.maxWidth == width && header.maxHeight == height &&
+                 header.bookSize == book.size && header.bookModified == book.modified &&
+                 header.width <= width && header.height <= height;
+    if (valid && header.width > 0 && header.height > 0) {
+        std::shared_ptr<EpubBitmap> cover(new (std::nothrow) EpubBitmap());
+        size_t bytes = static_cast<size_t>((header.width + 7) / 8) * header.height;
+        valid = cover && cover->allocate(header.width, header.height) &&
+                file.read(cover->pixels(), bytes) == bytes;
+        if (valid) book.cover = cover;
+    }
+    file.close();
+    if (valid) book.coverAttempted = true;
+    return valid;
+}
+
+void AppReader::saveCachedCover(const BookEntry& book, int width, int height) {
+    if (!EbookFS.exists(COVER_CACHE_DIR)) EbookFS.mkdir(COVER_CACHE_DIR);
+    File file = EbookFS.open(coverCachePath(book.path), FILE_WRITE);
+    if (!file) return;
+    const bool hasCover = book.cover && book.cover->valid();
+    CoverCacheHeader header = {
+        COVER_CACHE_MAGIC, COVER_CACHE_VERSION,
+        static_cast<uint16_t>(width), static_cast<uint16_t>(height),
+        static_cast<uint16_t>(hasCover ? book.cover->width : 0),
+        static_cast<uint16_t>(hasCover ? book.cover->height : 0),
+        book.size, book.modified
+    };
+    file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(header));
+    if (hasCover) {
+        file.write(const_cast<EpubBitmap&>(*book.cover).pixels(),
+                   static_cast<size_t>(book.cover->stride()) * book.cover->height);
+    }
+    file.close();
+}
+
+void AppReader::pruneCoverCache() {
+    File dir = EbookFS.open(COVER_CACHE_DIR);
+    if (!dir || !dir.isDirectory()) return;
+    std::vector<String> stale;
+    File file = dir.openNextFile();
+    while (file) {
+        String path = String(COVER_CACHE_DIR) + "/" + normalizedBookName(file.name());
+        bool used = false;
+        for (const BookEntry& book : _books) {
+            if (coverCachePath(book.path) == path) {
+                used = true;
+                break;
+            }
+        }
+        if (!used) stale.push_back(path);
+        file.close();
+        file = dir.openNextFile();
+    }
+    dir.close();
+    for (const String& path : stale) EbookFS.remove(path);
 }
 
 void AppReader::drawBookTile(Book32Display& display, int x, int y, int w, int h, bool selected) {
@@ -462,6 +574,8 @@ void AppReader::loadBookCover(BookEntry& book, int width, int height) {
         if (cover && loader.decodeImage(coverHref, width, height, *cover)) book.cover = cover;
     }
     loader.close();
+    // Cache "no cover" too, so coverless books aren't reopened every restart.
+    saveCachedCover(book, width, height);
 }
 
 void AppReader::handleInput(InputAction action) {
@@ -526,7 +640,7 @@ void AppReader::handleTouch(uint16_t x, uint16_t y) {
 
     constexpr int HEADER_H = 76;
     constexpr int BACK_ITEM_HEIGHT = 48;
-    constexpr int ITEM_HEIGHT = 110;
+    constexpr int ITEM_HEIGHT = LIBRARY_ITEM_HEIGHT;
     constexpr int FOOTER_H = 70;
     if (y >= HEADER_H && y < HEADER_H + BACK_ITEM_HEIGHT) {
         SoundMgr::getInstance().beep();
@@ -923,9 +1037,11 @@ void AppReader::drawLoadingScreen(const char* title, const char* status, uint8_t
 
 void AppReader::drawLibrary() {
     const bool initialLoad = !_booksScanned;
+    const unsigned long libraryStartedAt = millis();
     if (initialLoad) {
-        drawLoadingScreen("Opening eReader", "Finding books...", 15, true);
-        _libraryFirstDraw = false;  // The loading screen already established a clean full-refresh baseline.
+        // Listing the folder and reading cached titles/covers is quick, so the
+        // loading screen only appears once a new book actually needs work.
+        _libraryLoadingShown = false;
         scanBooks();
         _booksScanned = true;
     }
@@ -935,9 +1051,9 @@ void AppReader::drawLibrary() {
 
     const int HEADER_H = 76;
     const int BACK_ITEM_HEIGHT = 48;
-    const int COVER_WIDTH = 60;
-    const int COVER_HEIGHT = 80;
-    const int ITEM_HEIGHT = 110;
+    const int COVER_WIDTH = LIBRARY_COVER_WIDTH;
+    const int COVER_HEIGHT = LIBRARY_COVER_HEIGHT;
+    const int ITEM_HEIGHT = LIBRARY_ITEM_HEIGHT;
     const int ITEM_PADDING = 24;
     const int visibleBookCount = max(1, (display.height() - HEADER_H - BACK_ITEM_HEIGHT - 70) / ITEM_HEIGHT);
 
@@ -955,16 +1071,22 @@ void AppReader::drawLibrary() {
     int lastVisibleBook = min(static_cast<int>(_books.size()), _scrollOffset + visibleBookCount);
     bool coversNeedLoading = false;
     for (int index = _scrollOffset; index < lastVisibleBook; index++) {
-        if (!_books[index].coverAttempted) {
+        if (!_books[index].coverAttempted && !loadCachedCover(_books[index], COVER_WIDTH, COVER_HEIGHT)) {
             coversNeedLoading = true;
-            break;
         }
     }
     if (initialLoad && coversNeedLoading) {
-        drawLoadingScreen("Opening eReader", "Loading book covers...", 60, false);
+        showLibraryLoading("Loading book covers...", 60);
     }
     for (int index = _scrollOffset; index < lastVisibleBook; index++) {
         loadBookCover(_books[index], COVER_WIDTH, COVER_HEIGHT);
+    }
+    // A loading screen already gave the panel a clean full refresh.
+    if (initialLoad && _libraryLoadingShown) _libraryFirstDraw = false;
+    if (initialLoad) {
+        Serial.printf("AppReader: library ready in %lums (%u books, loading screen %s)\n",
+                      millis() - libraryStartedAt, static_cast<unsigned>(_books.size()),
+                      _libraryLoadingShown ? "shown" : "skipped");
     }
 
     // Entering the library replaces an unrelated screen, so it needs the full

@@ -16,13 +16,14 @@ updates.
 
 ### LILYGO preview
 
-The browser installer provides **InkDeck 1.3.4** for all three targets. The
+The browser installer provides **InkDeck 1.3.5** for all three targets. The
 LILYGO H752-01 / Pro Lite build remains experimental; the older H752 pinout is
 not supported. The header shows only InkDeck and the release version, without
-development-build suffixes. See [release notes](docs/release-1.3.4.md).
-1.3.4 makes Book32 page turns about a third faster and its full refreshes more
-than twice as fast; 1.3.3 sped up its startup and fixed the dark artifacts that
-built up along the edge of its main menu.
+development-build suffixes. See [release notes](docs/release-1.3.5.md).
+1.3.5 makes the Klipper app reliably find printers on all three devices, renders
+sharper book covers (larger on Book32) and opens the eReader without re-decoding
+covers. 1.3.4 made Book32 page turns about a third faster and its full refreshes
+more than twice as fast.
 
 The LILYGO build includes **NES (Nofrendo)** and **Game Boy / Game Boy Color
 (CrankBoy)** in Ink Boy. Its library shows Game Boy and NES tabs only for

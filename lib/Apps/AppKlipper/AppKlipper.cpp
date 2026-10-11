@@ -11,6 +11,11 @@
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <esp_task_wdt.h>
+#include <lwip/sockets.h>
+#include <lwip/etharp.h>
+#include <lwip/netif.h>
+#include <lwip/tcpip.h>
+#include <errno.h>
 
 // Scan interval (30 seconds)
 static const unsigned long SCAN_INTERVAL = 30000;
@@ -85,6 +90,12 @@ void AppKlipper::start() {
         Serial.println("async_tcp unsubscribed from WDT (Klipper active)");
     }
 
+    // Modem sleep only wakes the radio every beacon interval, which makes the
+    // first contact with each host slow enough to miss. Keep it awake here.
+    _waitingForWifi = false;
+    _restoreWifiSleep = WiFi.getSleep();
+    WiFi.setSleep(false);
+
     // Reload settings in case they changed
     loadSettings();
 
@@ -108,8 +119,10 @@ void AppKlipper::stop() {
         _scanTaskHandle = NULL;
     }
     _scanning = false;
+    _waitingForWifi = false;
     _printers.clear();
     _foundPrinters.clear();
+    if (_restoreWifiSleep) WiFi.setSleep(true);
 
     // Re-subscribe async_tcp to WDT now that Klipper is inactive
     if (_asyncTcpTask != NULL) {
@@ -144,6 +157,8 @@ void AppKlipper::handleInput(InputAction action) {
 
 void AppKlipper::update() {
     unsigned long now = millis();
+
+    if (_waitingForWifi && WiFi.status() == WL_CONNECTED) startScan();
 
     // Check if background scan completed
     if (_scanComplete) {
@@ -220,12 +235,16 @@ void AppKlipper::startScan() {
         return;
     }
 
-    // Verify WiFi is connected before scanning
+    // Wi-Fi may still be reconnecting (the eReader powers it down). update()
+    // starts the scan as soon as it connects.
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("ERROR: WiFi not connected!");
-        _needsRedraw = true;
+        Serial.println("Klipper: waiting for Wi-Fi before scanning");
+        if (!_waitingForWifi) _needsRedraw = true;
+        _waitingForWifi = true;
         return;
     }
+    if (_waitingForWifi) _needsRedraw = true;
+    _waitingForWifi = false;
 
     Serial.println("Starting background scan for Klipper printers...");
     _scanning = true;
@@ -263,122 +282,268 @@ void AppKlipper::scanTaskWrapper(void* param) {
     vTaskDelete(NULL);  // Delete this task when done
 }
 
+static const uint16_t MOONRAKER_PORT = 7125;
+static const char* KNOWN_PRINTERS_PATH = "/klipper_printers.json";
+static const int SWEEP_WINDOW = 8;                       // Concurrent connects (lwIP allows 16 sockets)
+static const uint32_t SWEEP_CONNECT_TIMEOUT_MS = 1500;   // Wi-Fi to Wi-Fi first contact can exceed 500ms
+static const int MAX_PRINTERS = 10;
+
 void AppKlipper::scanTask() {
     Serial.println("Scan task started on core " + String(xPortGetCoreID()));
+    const unsigned long startedAt = millis();
 
-    // Get local IP
-    IPAddress localIP = WiFi.localIP();
-    Serial.printf("Local IP: %s, scanning full subnet for Moonraker...\n", localIP.toString().c_str());
-
-    // Moonraker default port
-    const uint16_t MOONRAKER_PORT = 7125;
-
-    // Get base octets from local IP
-    uint8_t oct1 = localIP[0];
-    uint8_t oct2 = localIP[1];
-    uint8_t oct3 = localIP[2];
-    uint8_t myOct4 = localIP[3];
-
-    int found = 0;
-
-    // Scan full subnet (1-254), skip .0 and .255
-    for (int i = 1; i <= 254 && found < 10; i++) {
-        if (i == myOct4) continue;
-
-        IPAddress target(oct1, oct2, oct3, i);
-        String targetStr = target.toString();
-        _scannedIPs = i;
-        _scanProgress = (i * 100) / 254;
-
-        // Yield generously to let async_tcp and other tasks run (prevents watchdog)
-        vTaskDelay(pdMS_TO_TICKS(50));
-
-        // Extra yield every 10 IPs to give async_tcp a solid window
-        if (i % 10 == 0) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
-
-        // Probe Moonraker on default port
-        if (probeMoonraker(targetStr, MOONRAKER_PORT)) {
-            // Check if already in found list
-            bool exists = false;
-            for (const auto& pr : _foundPrinters) {
-                if (pr.ip == targetStr) {
-                    exists = true;
-                    break;
-                }
-            }
-
-            if (!exists) {
-                PrinterInfo printer;
-                printer.ip = targetStr;
-                printer.port = MOONRAKER_PORT;
-                printer.hostname = "Klipper";
-                printer.state = "unknown";
-                printer.extruderTemp = 0;
-                printer.extruderTarget = 0;
-                printer.bedTemp = 0;
-                printer.bedTarget = 0;
-                printer.progress = 0;
-                printer.filename = "";
-
-                // Try to get printer name from Moonraker database (where Mainsail stores it)
-                vTaskDelay(pdMS_TO_TICKS(5));
-                String dbUrl = "http://" + printer.ip + ":" + String(printer.port) + "/server/database/item?namespace=mainsail";
-                String dbResponse = httpGet(dbUrl);
-                if (dbResponse.length() > 0) {
-                    DynamicJsonDocument doc(4096);
-                    if (deserializeJson(doc, dbResponse) == DeserializationError::Ok) {
-                        const char* printerName = doc["result"]["value"]["general"]["printername"] | nullptr;
-                        if (printerName && strlen(printerName) > 0) {
-                            printer.hostname = printerName;
-                            Serial.printf("Got printer name from Mainsail DB: %s\n", printerName);
-                        }
-                    }
-                }
-
-                // If we didn't get a custom name, try /printer/info for hostname
-                if (printer.hostname == "Klipper") {
-                    vTaskDelay(pdMS_TO_TICKS(5));
-                    String infoUrl = "http://" + printer.ip + ":" + String(printer.port) + "/printer/info";
-                    String infoResponse = httpGet(infoUrl);
-                    if (infoResponse.length() > 0) {
-                        DynamicJsonDocument doc(2048);
-                        if (deserializeJson(doc, infoResponse) == DeserializationError::Ok) {
-                            const char* hostname = doc["result"]["hostname"] | "Klipper";
-                            printer.hostname = hostname;
-                            Serial.printf("Got hostname from /printer/info: %s\n", hostname);
-                        }
-                    }
-                }
-
-                Serial.printf("✓ Found: %s at %s:%d\n",
-                             printer.hostname.c_str(), printer.ip.c_str(), printer.port);
-                _foundPrinters.push_back(printer);
-                found++;
-            }
-        }
-
-        // Progress feedback every 25 IPs
-        if (i % 25 == 0) {
-            Serial.printf("Scanned %d/254 IPs (%d%%), found %d printers\n", i, _scanProgress, found);
-        }
+    // Printers found before answer first, so reopening the app skips the sweep.
+    for (const String& ip : loadKnownPrinters()) {
+        if (probeMoonraker(ip, MOONRAKER_PORT)) addFoundPrinter(ip, MOONRAKER_PORT);
     }
 
-    Serial.printf("Scan task complete: 254 IPs scanned, %d printers found\n", found);
+    if (_foundPrinters.empty()) {
+        Serial.printf("Local IP: %s, sweeping subnet for Moonraker...\n", WiFi.localIP().toString().c_str());
+        for (const String& ip : sweepForMoonraker(MOONRAKER_PORT)) {
+            if ((int)_foundPrinters.size() >= MAX_PRINTERS) break;
+            addFoundPrinter(ip, MOONRAKER_PORT);
+        }
+        if (!_foundPrinters.empty()) saveKnownPrinters(_foundPrinters);
+    }
 
-    // Signal completion to main thread
+    Serial.printf("Scan task complete in %lums: %d printers found\n",
+                  millis() - startedAt, (int)_foundPrinters.size());
     _scanComplete = true;
 }
 
+// Sends GET /server/info over an already-connected socket and checks for a
+// 200 response. Reusing the sweep's connection matters: reconnecting needs a
+// fresh ARP lookup, which a power-saving Wi-Fi printer can miss, and lwIP
+// only retries it with the SYN about 3 seconds later.
+static bool moonrakerAnswersOn(int fd, const String& ip, uint16_t port) {
+    String request = "GET /server/info HTTP/1.0\r\nHost: " + ip + ":" + String(port) + "\r\n\r\n";
+    const unsigned long startedAt = millis();
+    size_t sent = 0;
+    while (sent < request.length() && millis() - startedAt < 3000) {
+        int written = send(fd, request.c_str() + sent, request.length() - sent, 0);
+        if (written > 0) sent += written;
+        else if (errno == EAGAIN || errno == EWOULDBLOCK) vTaskDelay(pdMS_TO_TICKS(10));
+        else return false;
+    }
+    if (sent < request.length()) return false;
+
+    char status[16] = {};
+    size_t received = 0;
+    while (received < sizeof(status) - 1 && millis() - startedAt < 4000) {
+        int count = recv(fd, status + received, sizeof(status) - 1 - received, 0);
+        if (count > 0) received += count;
+        else if (count == 0) break;
+        else if (errno == EAGAIN || errno == EWOULDBLOCK) vTaskDelay(pdMS_TO_TICKS(10));
+        else break;
+    }
+    // "HTTP/1.1 200 ..." -> the status code starts at offset 9.
+    bool ok = received >= 12 && strncmp(status, "HTTP/1.", 7) == 0 && strncmp(status + 9, "200", 3) == 0;
+    Serial.printf("Port %u open at %s, /server/info: %s\n", port, ip.c_str(),
+                  ok ? "Moonraker" : (received ? status : "no response"));
+    return ok;
+}
+
+// lwIP sends one ARP request with the SYN and only asks again when the SYN is
+// retransmitted ~3s later. A power-saving Wi-Fi printer can miss that single
+// broadcast, so pending probes re-send it themselves. Runs on the tcpip thread.
+static void sendArpRequest(void* context) {
+    ip4_addr_t address;
+    address.addr = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(context));
+    if (netif_default) etharp_request(netif_default, &address);
+}
+
+static const uint32_t SWEEP_ARP_RETRY_MS = 500;
+
+std::vector<String> AppKlipper::sweepForMoonraker(uint16_t port) {
+    struct Probe {
+        int fd;
+        uint8_t host;
+        unsigned long startedAt;
+        unsigned long lastArpAt;
+    };
+    std::vector<String> open;
+    IPAddress local = WiFi.localIP();
+    std::vector<uint8_t> hosts;
+    for (int i = 1; i <= 254; i++) {
+        if (i != local[3]) hosts.push_back(static_cast<uint8_t>(i));
+    }
+    _totalIPs = hosts.size();
+
+    Probe probes[SWEEP_WINDOW];
+    int active = 0;
+    size_t next = 0;
+    int completed = 0;
+    while (next < hosts.size() || active > 0) {
+        // Fill the window with new non-blocking connects.
+        while (active < SWEEP_WINDOW && next < hosts.size()) {
+            uint8_t host = hosts[next];
+            int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            if (fd < 0) break;  // Out of sockets; wait for one to finish.
+            next++;
+            fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+            sockaddr_in address = {};
+            address.sin_family = AF_INET;
+            address.sin_port = htons(port);
+            address.sin_addr.s_addr = static_cast<uint32_t>(IPAddress(local[0], local[1], local[2], host));
+            int result = connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+            if (result == 0) {
+                String ip = IPAddress(local[0], local[1], local[2], host).toString();
+                if (moonrakerAnswersOn(fd, ip, port)) open.push_back(ip);
+                close(fd);
+                completed++;
+            } else if (errno == EINPROGRESS) {
+                probes[active++] = {fd, host, millis(), millis()};
+            } else {
+                close(fd);
+                completed++;
+            }
+        }
+        if (active == 0) {
+            if (next >= hosts.size()) break;
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+
+        fd_set writable;
+        FD_ZERO(&writable);
+        int maxFd = -1;
+        for (int i = 0; i < active; i++) {
+            FD_SET(probes[i].fd, &writable);
+            maxFd = max(maxFd, probes[i].fd);
+        }
+        timeval wait = {0, 50 * 1000};
+        select(maxFd + 1, nullptr, &writable, nullptr, &wait);
+
+        const unsigned long now = millis();
+        for (int i = 0; i < active;) {
+            bool done = false;
+            if (FD_ISSET(probes[i].fd, &writable)) {
+                int error = 0;
+                socklen_t length = sizeof(error);
+                getsockopt(probes[i].fd, SOL_SOCKET, SO_ERROR, &error, &length);
+                if (error == 0) {
+                    String ip = IPAddress(local[0], local[1], local[2], probes[i].host).toString();
+                    if (moonrakerAnswersOn(probes[i].fd, ip, port)) open.push_back(ip);
+                }
+                done = true;
+            } else if (now - probes[i].startedAt >= SWEEP_CONNECT_TIMEOUT_MS) {
+                done = true;
+            } else if (now - probes[i].lastArpAt >= SWEEP_ARP_RETRY_MS) {
+                IPAddress host(local[0], local[1], local[2], probes[i].host);
+                tcpip_callback(sendArpRequest, reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(host))));
+                probes[i].lastArpAt = now;
+            }
+            if (done) {
+                close(probes[i].fd);
+                probes[i] = probes[--active];
+                completed++;
+                _scannedIPs = completed;
+                _scanProgress = (completed * 100) / (int)hosts.size();
+            } else {
+                i++;
+            }
+        }
+        vTaskDelay(1);  // Let async_tcp and the UI run
+    }
+    _scannedIPs = hosts.size();
+    Serial.printf("Sweep found %d Moonraker hosts on port %u\n", (int)open.size(), port);
+    return open;
+}
+
+void AppKlipper::addFoundPrinter(const String& ip, uint16_t port) {
+    for (const auto& existing : _foundPrinters) {
+        if (existing.ip == ip) return;
+    }
+    PrinterInfo printer;
+    printer.ip = ip;
+    printer.port = port;
+    printer.hostname = "Klipper";
+    printer.state = "unknown";
+    printer.extruderTemp = 0;
+    printer.extruderTarget = 0;
+    printer.bedTemp = 0;
+    printer.bedTarget = 0;
+    printer.progress = 0;
+    printer.filename = "";
+
+    // Try to get printer name from Moonraker database (where Mainsail stores it)
+    String dbResponse = httpGet("http://" + ip + ":" + String(port) + "/server/database/item?namespace=mainsail");
+    if (dbResponse.length() > 0) {
+        DynamicJsonDocument doc(4096);
+        if (deserializeJson(doc, dbResponse) == DeserializationError::Ok) {
+            const char* printerName = doc["result"]["value"]["general"]["printername"] | nullptr;
+            if (printerName && strlen(printerName) > 0) {
+                printer.hostname = printerName;
+                Serial.printf("Got printer name from Mainsail DB: %s\n", printerName);
+            }
+        }
+    }
+
+    // Fluidd (and Fluidd-based vendor UIs) keep the printer name here instead.
+    if (printer.hostname == "Klipper") {
+        String fluiddResponse = httpGet("http://" + ip + ":" + String(port) +
+                                        "/server/database/item?namespace=fluidd&key=uiSettings");
+        if (fluiddResponse.length() > 0) {
+            DynamicJsonDocument doc(8192);
+            if (deserializeJson(doc, fluiddResponse) == DeserializationError::Ok) {
+                const char* instanceName = doc["result"]["value"]["general"]["instanceName"] | nullptr;
+                if (instanceName && strlen(instanceName) > 0) {
+                    printer.hostname = instanceName;
+                    Serial.printf("Got printer name from Fluidd DB: %s\n", instanceName);
+                }
+            }
+        }
+    }
+
+    // If we didn't get a custom name, try /printer/info for hostname
+    if (printer.hostname == "Klipper") {
+        String infoResponse = httpGet("http://" + ip + ":" + String(port) + "/printer/info");
+        if (infoResponse.length() > 0) {
+            DynamicJsonDocument doc(2048);
+            if (deserializeJson(doc, infoResponse) == DeserializationError::Ok) {
+                printer.hostname = doc["result"]["hostname"] | "Klipper";
+                Serial.printf("Got hostname from /printer/info: %s\n", printer.hostname.c_str());
+            }
+        }
+    }
+
+    Serial.printf("Found: %s at %s:%d\n", printer.hostname.c_str(), ip.c_str(), port);
+    _foundPrinters.push_back(printer);
+}
+
+std::vector<String> AppKlipper::loadKnownPrinters() {
+    std::vector<String> known;
+    File file = EbookFS.open(KNOWN_PRINTERS_PATH, "r");
+    if (!file) return known;
+    DynamicJsonDocument doc(1024);
+    if (!deserializeJson(doc, file)) {
+        for (JsonVariant ip : doc["printers"].as<JsonArray>()) {
+            const char* value = ip.as<const char*>();
+            if (value && strlen(value) > 0) known.push_back(value);
+        }
+    }
+    file.close();
+    return known;
+}
+
+void AppKlipper::saveKnownPrinters(const std::vector<PrinterInfo>& printers) {
+    DynamicJsonDocument doc(1024);
+    JsonArray list = doc.createNestedArray("printers");
+    for (const auto& printer : printers) list.add(printer.ip);
+    File file = EbookFS.open(KNOWN_PRINTERS_PATH, FILE_WRITE);
+    if (!file) return;
+    serializeJson(doc, file);
+    file.close();
+}
+
 bool AppKlipper::probeMoonraker(const String& ip, uint16_t port) {
-    // Skip the TCP probe - go straight to HTTP verification.
-    // If the port is closed, connect will fail immediately (RST).
-    // This avoids the double-connect overhead that was unreliable under load.
+    // Used for remembered printers. The first connection needs an ARP lookup
+    // that a power-saving printer can miss; lwIP retries it with the SYN at
+    // about 3s and 9s, so allow 10s rather than failing on the first miss.
     String url = "http://" + ip + ":" + String(port) + "/server/info";
     HTTPClient http;
-    http.setConnectTimeout(500);   // 500ms connect timeout (was 100ms TCP probe)
-    http.setTimeout(1500);         // 1.5 second read timeout
+    http.setConnectTimeout(10000);
+    http.setTimeout(4000);
 
     if (!http.begin(url)) {
         return false;
@@ -390,10 +555,10 @@ bool AppKlipper::probeMoonraker(const String& ip, uint16_t port) {
     vTaskDelay(pdMS_TO_TICKS(20));  // Let other tasks run after HTTP
 
     if (httpCode == HTTP_CODE_OK) {
-        Serial.printf("✓ Moonraker found at %s:%d\n", ip.c_str(), port);
+        Serial.printf("Moonraker found at %s:%d\n", ip.c_str(), port);
         return true;
     }
-
+    Serial.printf("Port %u open at %s but /server/info returned %d\n", port, ip.c_str(), httpCode);
     return false;
 }
 
@@ -518,6 +683,9 @@ void AppKlipper::drawScanning() {
                 display.fillRect(barX + 2, barY + 2, fillWidth, barHeight - 4, GxEPD_BLACK);
             }
 
+        } else if (_waitingForWifi) {
+            fontMgr.drawTextCentered(display, "Waiting for Wi-Fi...", screenH / 2 - 40, FONT_SIZE_MENU, GxEPD_BLACK);
+            fontMgr.drawTextCentered(display, "Scanning starts when connected", screenH / 2 + 20, FONT_SIZE_BODY, GxEPD_BLACK);
         } else if (_printers.empty()) {
             // No printers found - simple message
             fontMgr.drawTextCentered(display, "No printers found", screenH / 2 - 40, FONT_SIZE_MENU, GxEPD_BLACK);

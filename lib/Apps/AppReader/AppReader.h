@@ -18,6 +18,8 @@ enum ReaderState {
 struct BookEntry {
     String path;  // Full path to file
     String title; // Display title
+    uint32_t size = 0;      // File size and modification time identify the
+    uint32_t modified = 0;  // upload, so a replaced book gets a new cover.
     bool coverAttempted = false;
     std::shared_ptr<EpubBitmap> cover;
 };
@@ -65,7 +67,15 @@ private:
     void drawLoadingScreen(const char* title, const char* status, uint8_t progress, bool fullRefresh);
     void drawBookTile(Book32Display& display, int x, int y, int w, int h, bool selected);
     void loadBookCover(BookEntry& book, int width, int height);
-    
+    // Decoded covers persist in /.covers so a book is only decoded once per
+    // upload instead of after every restart.
+    bool loadCachedCover(BookEntry& book, int width, int height);
+    void saveCachedCover(const BookEntry& book, int width, int height);
+    void pruneCoverCache();
+    // The library's loading screen is only shown when there is slow work to do.
+    bool _libraryLoadingShown = false;
+    void showLibraryLoading(const char* status, uint8_t progress);
+
     // Global Pagination
     int _totalBookPages;
     std::vector<int> _chapterPageCounts;

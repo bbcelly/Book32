@@ -186,40 +186,68 @@ int jpegDraw(JPEGDRAW* draw) {
     return 1;
 }
 
-void resampleBilinear(const uint8_t* source, int sourceWidth, int sourceHeight,
-                      uint8_t* target, int targetWidth, int targetHeight) {
+// Resamples one row or column. Shrinking averages every source pixel by the
+// fraction of it each output pixel covers, so detail turns into the right
+// shade of gray instead of aliasing; enlarging interpolates linearly.
+void resampleLine(const uint8_t* source, int sourceLength, int sourceStep,
+                  uint8_t* target, int targetLength, int targetStep) {
+    if (targetLength >= sourceLength) {
+        for (int i = 0; i < targetLength; i++) {
+            uint32_t position = targetLength > 1
+                                    ? static_cast<uint32_t>((static_cast<uint64_t>(i) * (sourceLength - 1) << 16) /
+                                                            (targetLength - 1))
+                                    : 0;
+            int index0 = position >> 16;
+            int index1 = min(index0 + 1, sourceLength - 1);
+            uint32_t fraction = position & 0xFFFF;
+            target[i * targetStep] = static_cast<uint8_t>(
+                (source[index0 * sourceStep] * (65536U - fraction) + source[index1 * sourceStep] * fraction) >> 16);
+        }
+        return;
+    }
+
+    for (int i = 0; i < targetLength; i++) {
+        uint64_t start = (static_cast<uint64_t>(i) * sourceLength << 16) / targetLength;
+        uint64_t end = (static_cast<uint64_t>(i + 1) * sourceLength << 16) / targetLength;
+        uint64_t sum = 0;
+        uint64_t position = start;
+        int index = static_cast<int>(start >> 16);
+        while (position < end && index < sourceLength) {
+            uint64_t next = min(static_cast<uint64_t>(index + 1) << 16, end);
+            sum += static_cast<uint64_t>(source[index * sourceStep]) * (next - position);
+            position = next;
+            index++;
+        }
+        target[i * targetStep] = static_cast<uint8_t>((sum + (end - start) / 2) / (end - start));
+    }
+}
+
+void resampleGray(const uint8_t* source, int sourceWidth, int sourceHeight,
+                  uint8_t* target, int targetWidth, int targetHeight) {
     if (!source || !target || sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) return;
     if (sourceWidth == targetWidth && sourceHeight == targetHeight) {
         memcpy(target, source, static_cast<size_t>(targetWidth) * targetHeight);
         return;
     }
 
-    for (int y = 0; y < targetHeight; y++) {
-        uint32_t sourceY = targetHeight > 1
-                               ? static_cast<uint32_t>((static_cast<uint64_t>(y) * (sourceHeight - 1) << 16) /
-                                                       (targetHeight - 1))
-                               : 0;
-        int y0 = sourceY >> 16;
-        int y1 = min(y0 + 1, sourceHeight - 1);
-        uint32_t fy = sourceY & 0xFFFF;
-        const uint8_t* row0 = source + static_cast<size_t>(y0) * sourceWidth;
-        const uint8_t* row1 = source + static_cast<size_t>(y1) * sourceWidth;
-        uint8_t* output = target + static_cast<size_t>(y) * targetWidth;
-
-        for (int x = 0; x < targetWidth; x++) {
-            uint32_t sourceX = targetWidth > 1
-                                   ? static_cast<uint32_t>((static_cast<uint64_t>(x) * (sourceWidth - 1) << 16) /
-                                                           (targetWidth - 1))
-                                   : 0;
-            int x0 = sourceX >> 16;
-            int x1 = min(x0 + 1, sourceWidth - 1);
-            uint32_t fx = sourceX & 0xFFFF;
-            uint32_t top = (row0[x0] * (65536U - fx) + row0[x1] * fx) >> 16;
-            uint32_t bottom = (row1[x0] * (65536U - fx) + row1[x1] * fx) >> 16;
-            output[x] = static_cast<uint8_t>((top * (65536U - fy) + bottom * fy) >> 16);
+    // Separable: rows into a sourceHeight x targetWidth buffer, then columns.
+    uint8_t* rows = allocatePsram(static_cast<size_t>(sourceHeight) * targetWidth);
+    if (!rows) {
+        for (int y = 0; y < targetHeight; y++) {
+            const uint8_t* sourceRow = source + static_cast<size_t>(y * sourceHeight / targetHeight) * sourceWidth;
+            for (int x = 0; x < targetWidth; x++) target[y * targetWidth + x] = sourceRow[x * sourceWidth / targetWidth];
         }
-        if ((y & 15) == 0) yield();
+        return;
     }
+    for (int y = 0; y < sourceHeight; y++) {
+        resampleLine(source + static_cast<size_t>(y) * sourceWidth, sourceWidth, 1,
+                     rows + static_cast<size_t>(y) * targetWidth, targetWidth, 1);
+        if ((y & 31) == 0) yield();
+    }
+    for (int x = 0; x < targetWidth; x++) {
+        resampleLine(rows + x, sourceHeight, targetWidth, target + x, targetHeight, targetWidth);
+    }
+    free(rows);
 }
 
 int chooseJpegScale(int sourceWidth, int sourceHeight, int targetWidth, int targetHeight, int& denominator) {
@@ -246,6 +274,7 @@ struct PngContext {
     PNG* decoder = nullptr;
     uint8_t* gray = nullptr;
     uint8_t* sourceLine = nullptr;
+    uint8_t* rows = nullptr;  // sourceHeight x targetWidth, for area resampling
     int sourceWidth = 0;
     int sourceHeight = 0;
     int targetWidth = 0;
@@ -332,6 +361,15 @@ int pngDraw(PNGDRAW* draw) {
     uint32_t transparent = context->decoder ? context->decoder->getTransparentColor() : 0;
     pngLineToGray(draw, context->sourceLine, context->sourceWidth, transparent);
 
+    if (context->rows) {
+        if (draw->y >= 0 && draw->y < context->sourceHeight) {
+            resampleLine(context->sourceLine, context->sourceWidth, 1,
+                         context->rows + static_cast<size_t>(draw->y) * context->targetWidth,
+                         context->targetWidth, 1);
+        }
+        return 1;
+    }
+
     int targetStartY = (draw->y * context->targetHeight) / context->sourceHeight;
     int targetEndY = ((draw->y + 1) * context->targetHeight) / context->sourceHeight;
     if (targetEndY <= targetStartY) targetEndY = targetStartY + 1;
@@ -373,8 +411,10 @@ bool decodeJpeg(const uint8_t* data, size_t size, uint8_t* gray, int targetWidth
     context.targetHeight = targetHeight;
     context.lastYield = millis();
 
+    // Decode at the DCT-scaled size, then area-average down to the target.
+    // Sampling straight into the target skipped most source pixels.
     size_t intermediateBytes = static_cast<size_t>(context.scaledSourceWidth) * context.scaledSourceHeight;
-    if (progressive && intermediateBytes <= 2 * 1024 * 1024 &&
+    if (intermediateBytes <= 2 * 1024 * 1024 &&
         intermediateBytes + (256 * 1024) < heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) {
         context.intermediate = allocatePsram(intermediateBytes);
         if (context.intermediate) memset(context.intermediate, 255, intermediateBytes);
@@ -385,8 +425,8 @@ bool decodeJpeg(const uint8_t* data, size_t size, uint8_t* gray, int targetWidth
     int result = jpeg->decode(0, 0, scale);
     jpeg->close();
     if (result == 1 && context.intermediate) {
-        resampleBilinear(context.intermediate, context.scaledSourceWidth, context.scaledSourceHeight,
-                         gray, targetWidth, targetHeight);
+        resampleGray(context.intermediate, context.scaledSourceWidth, context.scaledSourceHeight,
+                     gray, targetWidth, targetHeight);
     }
     if (context.intermediate) free(context.intermediate);
     return result == 1;
@@ -428,10 +468,68 @@ bool decodePng(const uint8_t* data, size_t size, uint8_t* gray, int targetWidth,
     context.targetWidth = targetWidth;
     context.targetHeight = targetHeight;
     context.lastYield = millis();
+    // Without room for the row buffer, fall back to sampling into the target.
+    size_t rowsBytes = static_cast<size_t>(sourceInfo.height) * targetWidth;
+    if (rowsBytes <= 2 * 1024 * 1024) {
+        context.rows = allocatePsram(rowsBytes);
+        if (context.rows) memset(context.rows, 255, rowsBytes);
+    }
     int result = png->decode(&context, 0);
+    if (result == PNG_SUCCESS && context.rows) {
+        for (int x = 0; x < targetWidth; x++) {
+            resampleLine(context.rows + x, sourceInfo.height, targetWidth, gray + x, targetHeight, targetWidth);
+        }
+    }
+    if (context.rows) free(context.rows);
     free(sourceLine);
     png->close();
     return result == PNG_SUCCESS;
+}
+
+// Stretches the darkest and lightest 1% of pixels to black and white so
+// washed-out scans use the full range. Gain is capped at 2x so nearly flat
+// images are not turned into noise.
+void autoLevels(uint8_t* gray, int width, int height) {
+    uint32_t histogram[256] = {};
+    const size_t count = static_cast<size_t>(width) * height;
+    for (size_t i = 0; i < count; i++) histogram[gray[i]]++;
+    const size_t clip = count / 100;
+    int low = 0, high = 255;
+    size_t seen = 0;
+    while (low < 255 && (seen += histogram[low]) <= clip) low++;
+    seen = 0;
+    while (high > 0 && (seen += histogram[high]) <= clip) high--;
+    if (high - low < 24) return;
+    if (high - low < 128) {
+        int center = (low + high) / 2;
+        low = max(0, center - 64);
+        high = min(255, center + 64);
+    }
+    if (low == 0 && high == 255) return;
+    uint8_t table[256];
+    for (int v = 0; v < 256; v++) table[v] = static_cast<uint8_t>(constrain((v - low) * 255 / (high - low), 0, 255));
+    for (size_t i = 0; i < count; i++) gray[i] = table[gray[i]];
+}
+
+// Mild unsharp mask (3x3 box, amount 0.5) to restore edges softened by
+// averaging a large cover down to a thumbnail.
+void sharpen(uint8_t* gray, int width, int height) {
+    if (width < 3 || height < 3) return;
+    uint8_t* source = allocatePsram(static_cast<size_t>(width) * height);
+    if (!source) return;
+    memcpy(source, gray, static_cast<size_t>(width) * height);
+    for (int y = 0; y < height; y++) {
+        const int y0 = max(0, y - 1), y1 = min(height - 1, y + 1);
+        for (int x = 0; x < width; x++) {
+            const int x0 = max(0, x - 1), x1 = min(width - 1, x + 1);
+            int sum = 0;
+            for (int yy : {y0, y, y1})
+                for (int xx : {x0, x, x1}) sum += source[yy * width + xx];
+            const int value = source[y * width + x];
+            gray[y * width + x] = static_cast<uint8_t>(constrain(value + (value - sum / 9) / 2, 0, 255));
+        }
+    }
+    free(source);
 }
 
 bool ditherAtkinson(const uint8_t* gray, int width, int height, EpubBitmap& bitmap) {
@@ -573,7 +671,13 @@ bool EpubImageDecoder::decode(const uint8_t* data, size_t size, int maxWidth, in
     if (isJpeg(data, size)) decoded = decodeJpeg(data, size, gray, targetWidth, targetHeight, source);
     else if (isPng(data, size)) decoded = decodePng(data, size, gray, targetWidth, targetHeight, source);
 
-    bool dithered = decoded && ditherAtkinson(gray, targetWidth, targetHeight, bitmap);
+    bool dithered = false;
+    if (decoded) {
+        autoLevels(gray, targetWidth, targetHeight);
+        // Only images shrunk by more than 1.25x lose enough edge detail to need it.
+        if (source.width * 4 > targetWidth * 5) sharpen(gray, targetWidth, targetHeight);
+        dithered = ditherAtkinson(gray, targetWidth, targetHeight, bitmap);
+    }
     free(gray);
     return dithered;
 }

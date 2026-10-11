@@ -82,6 +82,16 @@ private:
     // Scanning
     void startScan();  // Starts the background scan task
     bool probeMoonraker(const String& ip, uint16_t port);  // Check if IP is Moonraker
+    // Opens up to SWEEP_WINDOW non-blocking TCP connections at a time and
+    // returns the addresses whose port answers /server/info on that same
+    // connection.
+    std::vector<String> sweepForMoonraker(uint16_t port);
+    void addFoundPrinter(const String& ip, uint16_t port);
+    // Printers found before are tried first, so reopening the app is instant.
+    std::vector<String> loadKnownPrinters();
+    void saveKnownPrinters(const std::vector<PrinterInfo>& printers);
+    volatile bool _waitingForWifi = false;  // Scan starts once Wi-Fi connects
+    bool _restoreWifiSleep = false;
     void drawScanning();
 
     // List view
