@@ -1,6 +1,6 @@
 #pragma once
 #include "Config.h"
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
 #include "BaseApp.h"
 #include "GameFrameTiming.h"
 #include "RomFormat.h"

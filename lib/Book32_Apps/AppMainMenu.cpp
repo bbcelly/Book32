@@ -11,8 +11,16 @@
 #include <WiFi.h>
 #include "icon_update.h"
 #include "../Book32_Update/GitHubMgr.h"
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
 #include "NetworkWork.h"
+#endif
+
+#if defined(BOARD_SEEED_STICKY)
+// With Ink Boy the Sticky has five tiles: three tighter rows end above the
+// footer on its 800 px screen.
+static constexpr int MENU_START_Y = 120, MENU_ROW_HEIGHT = 200;
+#else
+static constexpr int MENU_START_Y = 180, MENU_ROW_HEIGHT = 240;
 #endif
 
 struct MenuDirtyRect {
@@ -25,8 +33,8 @@ struct MenuDirtyRect {
 static MenuDirtyRect menuItemRect(int index, int screenW) {
     const int ICON_SIZE = 160;
     const int COLS = 2;
-    const int ROW_HEIGHT = 240;
-    const int START_Y = 180;
+    const int ROW_HEIGHT = MENU_ROW_HEIGHT;
+    const int START_Y = MENU_START_Y;
     int colWidth = screenW / COLS;
     int idx = index - 1;
     int col = idx % COLS;
@@ -49,54 +57,13 @@ static bool isReaderActive() {
     return current && (strcmp(current->getName(), "eReader") == 0 || strcmp(current->getName(), "Ink Boy") == 0);
 }
 
-#if BOOK32_HAS_TOUCH
-static void fillQuad(Book32Display& display,
-                     int x1, int y1, int x2, int y2,
-                     int x3, int y3, int x4, int y4) {
-    display.fillTriangle(x1, y1, x2, y2, x3, y3, GxEPD_BLACK);
-    display.fillTriangle(x1, y1, x3, y3, x4, y4, GxEPD_BLACK);
-}
-
-static void drawSettingsMenuIcon(Book32Display& display, int x, int y) {
-    // A framed, eight-tooth cog matching the bold outlined app icons.
-    const int cx = x + 80;
-    const int cy = y + 80;
-
-    for (int inset = 0; inset < 4; ++inset) {
-        display.drawRoundRect(x + 5 + inset, y + 5 + inset,
-                              150 - inset * 2, 150 - inset * 2,
-                              10, GxEPD_BLACK);
-    }
-
-    // Square cardinal teeth.
-    display.fillRect(cx - 9, y + 20, 18, 34, GxEPD_BLACK);
-    display.fillRect(cx - 9, y + 106, 18, 34, GxEPD_BLACK);
-    display.fillRect(x + 20, cy - 9, 34, 18, GxEPD_BLACK);
-    display.fillRect(x + 106, cy - 9, 34, 18, GxEPD_BLACK);
-
-    // Square diagonal teeth, each drawn as a solid quadrilateral.
-    fillQuad(display, x + 101, y + 47, x + 114, y + 34,
-             x + 126, y + 46, x + 113, y + 59);
-    fillQuad(display, x + 113, y + 101, x + 126, y + 114,
-             x + 114, y + 126, x + 101, y + 113);
-    fillQuad(display, x + 59, y + 101, x + 46, y + 114,
-             x + 34, y + 126, x + 47, y + 113);
-    fillQuad(display, x + 47, y + 59, x + 34, y + 46,
-             x + 46, y + 34, x + 59, y + 47);
-
-    // Solid gear body with a clean center opening.
-    display.fillCircle(cx, cy, 44, GxEPD_BLACK);
-    display.fillCircle(cx, cy, 27, GxEPD_WHITE);
-}
-#endif
-
 void AppMainMenu::updateCheckTask(void* parameter) {
     AppMainMenu* self = (AppMainMenu*)parameter;
     
     // Wait for connection (max 10s)
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
         if (NetworkWork::gate().paused()) break;
 #endif
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -119,7 +86,7 @@ void AppMainMenu::updateCheckTask(void* parameter) {
 }
 
 void AppMainMenu::wifiWakeTask(void* parameter) {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
     {
         NetworkWork::Lease network;
         if (network) wifiWakeWork(parameter);
@@ -150,7 +117,7 @@ void AppMainMenu::wifiWakeWork(void* parameter) {
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
         if (NetworkWork::gate().paused()) {
             self->_wifiStarting=false;
             self->_wifiTaskHandle=nullptr;
@@ -167,7 +134,7 @@ void AppMainMenu::wifiWakeWork(void* parameter) {
         }
 #endif
         if (isReaderActive()) {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
             App* owner=AppMgr::getInstance().getCurrentApp();
             if (owner && strcmp(owner->getName(),"Ink Boy")==0) {
                 self->_wifiStarting=false;self->_wifiTaskHandle=nullptr;
@@ -456,8 +423,8 @@ void AppMainMenu::draw() {
     // Layout constants
     const int ICON_SIZE = 160;
     const int COLS = 2;
-    const int ROW_HEIGHT = 240;
-    const int START_Y = 180;
+    const int ROW_HEIGHT = MENU_ROW_HEIGHT;
+    const int START_Y = MENU_START_Y;
 
 #if !BOOK32_HAS_TOUCH
     // Partial updates slowly accumulate ghosting on the 7.5" panel; clear it
@@ -551,10 +518,7 @@ void AppMainMenu::draw() {
             const uint8_t* icon = app->getIconImage();
             if (icon) {
                 display.drawBitmap(x, y, icon, ICON_SIZE, ICON_SIZE, GxEPD_BLACK);
-#if BOOK32_HAS_TOUCH
-            } else if (strcmp(app->getName(), "Settings") == 0) {
-                drawSettingsMenuIcon(display, x, y);
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
             } else if (strcmp(app->getName(), "Ink Boy") == 0) {
                 for (int line = 0; line < 4; ++line)
                     display.drawRoundRect(x+10+line,y+32+line,140-line*2,98-line*2,24,GxEPD_BLACK);
@@ -564,7 +528,6 @@ void AppMainMenu::draw() {
                 display.fillCircle(x+98,y+86,10,GxEPD_BLACK);
                 display.fillRoundRect(x+61,y+111,17,5,2,GxEPD_BLACK);
                 display.fillRoundRect(x+88,y+111,17,5,2,GxEPD_BLACK);
-#endif
 #endif
             } else {
                 display.drawRect(x, y, ICON_SIZE, ICON_SIZE, GxEPD_BLACK);

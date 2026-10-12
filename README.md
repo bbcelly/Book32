@@ -16,11 +16,13 @@ updates.
 
 ### LILYGO preview
 
-The browser installer provides **InkDeck 1.3.6** for all three targets. The
+The browser installer provides **InkDeck 1.3.7** for all three targets. The
 LILYGO H752-01 / Pro Lite build remains experimental; the older H752 pinout is
 not supported. The header shows only InkDeck and the release version, without
-development-build suffixes. See [release notes](docs/release-1.3.6.md).
-1.3.6 fixes a reboot about five seconds after leaving the Klipper app.
+development-build suffixes. See [release notes](docs/release-1.3.7.md).
+1.3.7 brings Ink Boy (Game Boy / Game Boy Color) to the Seeed Studio Sticky with
+a fast per-pixel video driver, and fixes colour games losing their background
+after resuming a save. 1.3.6 fixed a reboot after leaving the Klipper app.
 1.3.5 made the Klipper app reliably find printers on all three devices, rendered
 sharper book covers (larger on Book32) and opens the eReader without re-decoding
 covers. 1.3.4 made Book32 page turns about a third faster and its full refreshes

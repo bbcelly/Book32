@@ -126,7 +126,7 @@ bool StickyTouch::readFrame(bool& touching, uint16_t& nativeX, uint16_t& nativeY
     return valid;
 }
 
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
 bool StickyTouch::readPoints(uint16_t* x, uint16_t* y, uint8_t& count, bool& homePressed) {
     homePressed = false;
     uint8_t status = 0;
@@ -136,6 +136,7 @@ bool StickyTouch::readPoints(uint16_t* x, uint16_t* y, uint8_t& count, bool& hom
     bool valid = count <= 5 && (!count || readRegister(0x814F, data, count * 8));
     const bool acknowledged = writeRegister(0x814E, 0);
     if (!valid || !acknowledged) return false;
+#if defined(BOARD_LILYGO_T5S3_PRO)
     // The front-bottom capacitive button is GT911's HaveKey bit, not the
     // separate PCA9535 S3 switch. Consume it before discarding the status.
     // Only fresh, fully read/acknowledged packets change the latch: an idle
@@ -147,6 +148,7 @@ bool StickyTouch::readPoints(uint16_t* x, uint16_t* y, uint8_t& count, bool& hom
         count = 0; // Never turn the bezel button into an on-screen app tap.
         return true;
     }
+#endif
     for (uint8_t i = 0; i < count; ++i) {
         uint16_t rawX = data[i * 8 + 1] | (data[i * 8 + 2] << 8);
         uint16_t rawY = data[i * 8 + 3] | (data[i * 8 + 4] << 8);
@@ -154,7 +156,14 @@ bool StickyTouch::readPoints(uint16_t* x, uint16_t* y, uint8_t& count, bool& hom
         // DisplayMgr then applies the user's selected portrait rotation.
         if (rawX >= PANEL_HEIGHT || rawY >= PANEL_WIDTH) {
             x[i] = PANEL_WIDTH; y[i] = PANEL_HEIGHT; // rejected by DisplayMgr
-        } else { x[i] = rawY; y[i] = PANEL_HEIGHT - 1 - rawX; }
+        } else {
+#if defined(BOARD_LILYGO_T5S3_PRO)
+            x[i] = rawY; y[i] = PANEL_HEIGHT - 1 - rawX;
+#else
+            // Same axis swap and flip as readFrame().
+            x[i] = PANEL_WIDTH - 1 - rawY; y[i] = PANEL_HEIGHT - 1 - rawX;
+#endif
+        }
     }
     return true;
 }

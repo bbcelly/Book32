@@ -29,7 +29,8 @@ public:
     void init();
     void update();
     void prepareForSleep();
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
+    // Every finger currently down, for held/multi-touch game controls.
     struct TouchPoint { uint16_t x, y; };
     uint8_t heldTouches(TouchPoint* points) const;
 #endif
@@ -58,10 +59,12 @@ private:
     uint16_t _touchLastY = 0;
     unsigned long _touchStartedAt = 0;
 #endif
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
     TouchPoint _points[5] = {};
-    uint8_t _pointCount = 0;
-    unsigned long _pointsAt = 0;
+    volatile uint8_t _pointCount = 0;
+    volatile unsigned long _pointsAt = 0;
+#endif
+#if defined(BOARD_LILYGO_T5S3_PRO)
     DebouncedPress _frontlightButton;
     uint32_t _frontlightPolledAt = 0;
     void pollFrontlightButton();

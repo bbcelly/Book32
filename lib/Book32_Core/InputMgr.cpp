@@ -208,24 +208,29 @@ void InputMgr::pollTouch() {
     bool touching = false;
     uint16_t nativeX = 0;
     uint16_t nativeY = 0;
-#if defined(BOARD_LILYGO_T5S3_PRO)
-    // Poll on the display-owning loop: all H752-01 peripherals share Wire.
+#if BOOK32_HAS_INKBOY
+    // LILYGO polls on the display-owning loop (all H752-01 peripherals share
+    // Wire); Sticky polls from the input task. Both keep every held finger.
     uint16_t nx[5], ny[5];
     uint8_t count = 0;
     bool homePressed = false;
     if (!touch.readPoints(nx, ny, count, homePressed)) return;
     _pointCount = 0;
     _pointsAt = millis();
+#if defined(BOARD_LILYGO_T5S3_PRO)
     if (homePressed) {
         _touchDown = false; // Cancel any pending screen tap; bezel is separate.
         mappedButton(true);
         return;
     }
+#endif
+    uint8_t kept = 0;
     for (uint8_t i = 0; i < count; ++i) {
         uint16_t sx, sy;
         if (DisplayMgr::getInstance().mapNativeTouchToScreen(nx[i], ny[i], sx, sy))
-            _points[_pointCount++] = {sx, sy};
+            _points[kept++] = {sx, sy};
     }
+    _pointCount = kept;
     touching = _pointCount > 0;
     if (touching) { nativeX = nx[0]; nativeY = ny[0]; }
 #else
@@ -295,9 +300,13 @@ void InputMgr::mappedButton(bool front) {
     }
 }
 
+#endif
+
+#if BOOK32_HAS_INKBOY
 uint8_t InputMgr::heldTouches(TouchPoint* points) const {
     if (millis() - _pointsAt > 250) return 0;
-    for (uint8_t i = 0; i < _pointCount; ++i) points[i] = _points[i];
-    return _pointCount;
+    const uint8_t count = _pointCount;
+    for (uint8_t i = 0; i < count; ++i) points[i] = _points[i];
+    return count;
 }
 #endif

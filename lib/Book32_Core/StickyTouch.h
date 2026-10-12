@@ -11,7 +11,7 @@ public:
     void stop();
     bool readFrame(bool& touching, uint16_t& nativeX, uint16_t& nativeY);
     bool available() const { return _address != 0; }
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
     bool readPoints(uint16_t* x, uint16_t* y, uint8_t& count, bool& homePressed);
 #endif
 

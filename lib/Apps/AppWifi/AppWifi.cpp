@@ -8,6 +8,7 @@
 #include "../../Book32_Core/FontMgr.h"
 #include "../../Book32_Core/Book32FS.h"
 #include "../../Book32_Core/SoundMgr.h"
+#include "../../Book32_Apps/icon_settings.h"
 #include "../../Book32_Web/WebMgr.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -876,5 +877,7 @@ void AppWifi::drawConnectionResult() {
                            FONT_SIZE_BODY);
     } while (display.nextPage());
 }
+
+const uint8_t* AppWifi::getIconImage() { return icon_settings_160x160; }
 
 #endif

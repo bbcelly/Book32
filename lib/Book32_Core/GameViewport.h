@@ -3,6 +3,73 @@
 #include <string.h>
 #include "LilygoLayout.h"
 
+#if defined(BOARD_SEEED_STICKY)
+// Sticky: 800x480 SSD1677 panel, 480x800 portrait UI. Game Boy at 2x in a
+// 320x288 window. Each source pixel is a 2x2 cell covered 0/4, 1/4, 3/4 or 4/4
+// black, so four shades need no temporal dithering.
+//
+// The packed frame is the window exactly as the controller RAM expects it:
+// WINDOW_ROWS native rows in write order (descending native y, data entry
+// mode X+ / Y-), each ROW_BYTES bytes, MSB = lowest native x, 1 = white.
+namespace GameViewport {
+constexpr int SOURCE_W = 160, SOURCE_H = 144, SCALE = 2;
+constexpr int X = 80, Y = 64, W = SOURCE_W * SCALE, H = SOURCE_H * SCALE;
+constexpr int PANEL_W = 800, PANEL_H = 480, PITCH = PANEL_W / 8;
+constexpr int WINDOW_ROWS = W, ROW_BYTES = H / 8;
+constexpr int PACKED_BYTES = WINDOW_ROWS * ROW_BYTES;
+// Native window origin for the two portrait rotations (Adafruit GFX mapping:
+// rotation 3 -> native (y, 479 - x); rotation 1 -> native (799 - y, x)).
+constexpr int nativeX(uint8_t rotation) { return rotation == 3 ? Y : PANEL_W - Y - H; }
+constexpr int nativeY0(uint8_t rotation) { return rotation == 3 ? PANEL_H - X - W : X; }
+static_assert(X + W <= 480 && Y + H <= 800, "portrait layout");
+static_assert((nativeX(1) & 7) == 0 && (nativeX(3) & 7) == 0 && (H & 7) == 0,
+              "native window must be byte aligned");
+
+// White bits for one source pixel's two native columns (dy = 0, 1) at the
+// given portrait column parity dx. Coverage: 0/4, 1/4, 3/4, 4/4 black.
+constexpr bool blackCell(uint8_t shade, int dx, int dy) {
+    return shade == 3 || (shade >= 1 && dx == 0 && dy == 0) ||
+           (shade == 2 && ((dx == 1 && dy == 0) || (dx == 1 && dy == 1)));
+}
+static_assert(!blackCell(0,0,0) && blackCell(1,0,0) && !blackCell(1,1,1) &&
+              blackCell(2,1,1) && !blackCell(2,0,1) && blackCell(3,1,1), "four gray levels");
+
+inline void pack(uint8_t* packed, const uint8_t* shades, uint8_t rotation) {
+    if (!packed || !shades || (rotation != 1 && rotation != 3)) return;
+    // pairs[dx][shade]: two white bits for the cell's dy = 0 then dy = 1.
+    uint8_t pairs[2][4];
+    for (int dx = 0; dx < 2; ++dx)
+        for (int shade = 0; shade < 4; ++shade)
+            pairs[dx][shade] = (blackCell(shade, dx, 0) ? 0 : 2) | (blackCell(shade, dx, 1) ? 0 : 1);
+    for (int row = 0; row < WINDOW_ROWS; ++row) {
+        // Write row `row` is portrait column lx; native columns walk portrait y.
+        // bb_epaper stores canvas row y at controller RAM row 479 - y, so
+        // RAM rows run opposite to GFX's native rows (verified on hardware:
+        // the other order mirrors the picture left to right).
+        const int lx = rotation == 3 ? W - 1 - row : row;
+        const uint8_t* source = shades + (lx >> 1);
+        const uint8_t* pair = pairs[lx & 1];
+        uint8_t* out = packed + row * ROW_BYTES;
+        for (int byte = 0; byte < ROW_BYTES; ++byte) {
+            uint8_t bits = 0;
+            // Four source rows per byte, two native columns each.
+            for (int i = 0; i < 4; ++i) {
+                const int c = byte * 8 + i * 2;  // first of the two native columns
+                if (rotation == 3) {
+                    // Native column c is portrait ly = c: dy order 0 then 1.
+                    bits = (bits << 2) | pair[source[(c >> 1) * SOURCE_W] & 3];
+                } else {
+                    // Native column c is portrait ly = H - 1 - c: dy order 1 then 0.
+                    const uint8_t p = pair[source[((H - 1 - c) >> 1) * SOURCE_W] & 3];
+                    bits = (bits << 2) | ((p >> 1) | ((p & 1) << 1));
+                }
+            }
+            out[byte] = bits;
+        }
+    }
+}
+}
+#else
 namespace GameViewport {
 constexpr int SOURCE_W = 160, SOURCE_H = 144, SCALE = 3;
 constexpr int X = 22, Y = 72, W = SOURCE_W * SCALE, H = SOURCE_H * SCALE;
@@ -41,6 +108,7 @@ inline void pack3x(uint8_t* packed, const uint8_t* shades, uint8_t rotation) {
     for (int row = 0; row < SOURCE_W; ++row)
         packRow(packed + row * ROW_BYTES, shades, row, rotation);
 }
+inline void pack(uint8_t* packed, const uint8_t* shades, uint8_t rotation) { pack3x(packed, shades, rotation); }
 inline void blitPacked(uint8_t* canvas, const uint8_t* packed, uint8_t rotation) {
     if (!canvas || !packed || (rotation != 1 && rotation != 3)) return;
     for (int row = 0; row < SOURCE_W; ++row) for (int repeat = 0; repeat < SCALE; ++repeat)
@@ -58,3 +126,4 @@ inline void blit3x(uint8_t* canvas, const uint8_t* shades, uint8_t rotation) {
     }
 }
 }
+#endif

@@ -1,15 +1,15 @@
 #pragma once
 
 #if defined(BOARD_LILYGO_T5S3_PRO)
-#define SYSTEM_VERSION "1.3.6"
+#define SYSTEM_VERSION "1.3.7"
 #define DEVICE_NAME "LILYGO T5 E-Paper S3 Pro Lite (H752-01)"
 #define SLEEP_TIMEOUT_DEFAULT_MINUTES 10
 #elif defined(BOARD_SEEED_STICKY)
-#define SYSTEM_VERSION "1.3.6"
+#define SYSTEM_VERSION "1.3.7"
 #define DEVICE_NAME "Seeed Studio Sticky"
 #define SLEEP_TIMEOUT_DEFAULT_MINUTES 10
 #else
-#define SYSTEM_VERSION "1.3.6"
+#define SYSTEM_VERSION "1.3.7"
 #define DEVICE_NAME "Book32"
 #define SLEEP_TIMEOUT_DEFAULT_MINUTES 0
 #endif
@@ -136,6 +136,13 @@
 
 #define OTA_FIRMWARE_ASSET "firmware.bin"
 #define OTA_FILESYSTEM_ASSET "littlefs.bin"
+#endif
+
+// Ink Boy (Game Boy / NES) runs on the touch boards with fast video drivers.
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
+#define BOOK32_HAS_INKBOY 1
+#else
+#define BOOK32_HAS_INKBOY 0
 #endif
 
 // Boot diagnostics

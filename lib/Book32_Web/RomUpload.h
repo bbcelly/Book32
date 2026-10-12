@@ -1,5 +1,5 @@
 #pragma once
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <algorithm>

@@ -2,7 +2,7 @@
 #include <WiFi.h>
 #include "Config.h"
 #include "NetworkState.h"
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
 #include "NetworkWork.h"
 #endif
 
@@ -14,7 +14,7 @@
 #include "BatteryMgr.h"
 #include "FontMgr.h"
 #include "SoundMgr.h"
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
 #include "../Apps/AppPaperboy/AppPaperboy.h"
 #endif
 
@@ -47,7 +47,7 @@ static void networkStartupWork(void* parameter) {
     WiFi.begin();
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
         if (NetworkWork::gate().paused()) {
             gNetworkStartupInProgress=false;
             return;
@@ -96,7 +96,7 @@ static void networkStartupWork(void* parameter) {
             gNetworkStartupInProgress=false;
             return; // Ink Boy is the sole radio-shutdown owner.
         }
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
         // Ink Boy owns shutdown and waits for this lease plus active HTTPS.
         if (NetworkWork::gate().paused()) { gNetworkStartupInProgress=false; return; }
 #endif
@@ -118,7 +118,7 @@ static void networkStartupWork(void* parameter) {
 }
 
 static void networkStartupTask(void* parameter) {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
     {
         NetworkWork::Lease network;
         if (network) networkStartupWork(parameter);
@@ -224,7 +224,7 @@ void setup() {
 #if BOOK32_HAS_TOUCH
     appMgr.registerApp(new AppWifi());
 #endif
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
     appMgr.registerApp(new AppPaperboy());
 #endif
 

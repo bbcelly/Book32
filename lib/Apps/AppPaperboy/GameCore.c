@@ -1,4 +1,4 @@
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
 // CrankBoy's DMG and CGB interpreters, with InkDeck storage/display adapters.
 #define PGB_IMPL
 #include "crankboy/peanut_gb.h"
@@ -258,6 +258,11 @@ bool inkGameStateImport(const void* state, size_t size) {
     core->direct.frame_skip = 0; core->direct.joypad = 0xff;
     core->direct.sram_dirty = core->direct.sram_updated = ramSize != 0;
     pgb_cgb_lut_dirty = true;
+    // States carry only the raw CGB palette bytes. The background remap tables
+    // derived from them live beside those bytes but are not saved and nothing
+    // consumes pgb_cgb_lut_dirty, so a resumed colour game drew its background
+    // white until it next wrote a palette. Rebuild every derived table now.
+    if (core->is_cgb_mode) gb_recompute_cgb_gray_palettes(core);
     memcpy(lcd, (const uint8_t*)state + size - LCD_BUFFER_BYTES, LCD_BUFFER_BYTES);
     int64_t now = time(NULL);
     if (hasRtc && header->timestamp >= 1577836800 && now > header->timestamp && now-header->timestamp <= UINT32_MAX)

@@ -17,6 +17,7 @@ struct WifiNetworkEntry {
 class AppWifi : public App {
 public:
     const char* getName() override { return "Settings"; }
+    const uint8_t* getIconImage() override;
 
     void start() override;
     void stop() override;

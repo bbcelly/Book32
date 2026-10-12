@@ -166,7 +166,7 @@ void WebMgr::mountFilesystems() {
 void WebMgr::init() {
     if (_initialized) return;
     if (!_endpointsConfigured) {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
         // Cartridge RTC catch-up uses UTC; synchronization is asynchronous.
         configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
 #endif
@@ -362,10 +362,12 @@ void WebMgr::setupEndpoints() {
         doc["voltage"] = BatteryMgr::getInstance().getVoltage();
         doc["charging"] = BatteryMgr::getInstance().isCharging();
         doc["version"] = SYSTEM_VERSION;
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
         doc["romUpload"] = true;
-        doc["lilygoControls"] = true;
         doc["romMaxBytes"] = INK_ROM_MAX_BYTES;
+#endif
+#if defined(BOARD_LILYGO_T5S3_PRO)
+        doc["lilygoControls"] = true;
 #endif
 
         doc["freeSpace"] = ebookStorageTotalBytes() - ebookStorageUsedBytes();
@@ -378,7 +380,7 @@ void WebMgr::setupEndpoints() {
         request->send(response);
     });
 
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
     RomUpload::configure(server);
 #endif
     // API: List Books from EbookFS

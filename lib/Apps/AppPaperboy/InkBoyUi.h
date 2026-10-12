@@ -9,10 +9,29 @@
 // Shared drawing + hit geometry. Static decoration is painted only on entry /
 // resume; the video driver touches only the system's game window.
 namespace InkBoyUi {
+#if defined(BOARD_SEEED_STICKY)
+// 480x800 portrait: the 320x288 game window sits in a bezel at the top and
+// the controls fill the lower half.
+constexpr int DPAD_X = 110, DPAD_Y = 520, DPAD_HALF = 78, DPAD_ARM = 26;
+constexpr int A_X = 400, A_Y = 482, B_X = 306, B_Y = 528, AB_RADIUS = 38;
+constexpr int SELECT_X = 160, START_X = 255, SMALL_Y = 652;
+constexpr int SMALL_LENGTH = 74, SMALL_HEIGHT = 24;
+constexpr int BEZEL_X = 60, BEZEL_Y = 48, BEZEL_W = 360, BEZEL_H = 320;
+constexpr int TITLE_X = 110, TITLE_Y = 384;
+constexpr int GRILLE_X = 330, GRILLE_Y = 630, GRILLE_STEP_X = 22, GRILLE_STEP_Y = 9;
+constexpr int GRILLE_DX = 32, GRILLE_DY = 58;
+constexpr int HINT_X = 240, HINT_Y = 772;
+#else
 constexpr int DPAD_X = 120, DPAD_Y = 674, DPAD_HALF = 88, DPAD_ARM = 29;
 constexpr int A_X = 443, A_Y = 630, B_X = 338, B_Y = 681, AB_RADIUS = 43;
 constexpr int SELECT_X = 174, START_X = 285, SMALL_Y = 810;
 constexpr int SMALL_LENGTH = 82, SMALL_HEIGHT = 26;
+constexpr int BEZEL_X = 10, BEZEL_Y = 60, BEZEL_W = 504, BEZEL_H = 466;
+constexpr int TITLE_X = 103, TITLE_Y = 540;
+constexpr int GRILLE_X = 355, GRILLE_Y = 838, GRILLE_STEP_X = 24, GRILLE_STEP_Y = 10;
+constexpr int GRILLE_DX = 36, GRILLE_DY = 66;
+constexpr int HINT_X = 262, HINT_Y = 926;
+#endif
 constexpr uint16_t BLACK = 0, WHITE = 1;
 constexpr int controlOffset(InkSystem system) { return system==INK_SYSTEM_NES ? 12 : 0; }
 
@@ -87,7 +106,7 @@ inline void draw(Adafruit_GFX& d,InkSystem system=INK_SYSTEM_GB) {
     const bool nes=system==INK_SYSTEM_NES;
     const int gx=nes ? NesViewport::X : X, gy=nes ? NesViewport::Y : Y;
     const int gw=nes ? NesViewport::W : W, gh=nes ? NesViewport::H : H;
-    const int bx=nes ? 0 : 10, by=nes ? 44 : 60, bw=nes ? 524 : 504, bh=nes ? 500 : 466;
+    const int bx=nes ? 0 : BEZEL_X, by=nes ? 44 : BEZEL_Y, bw=nes ? 524 : BEZEL_W, bh=nes ? 500 : BEZEL_H;
     const int offset=controlOffset(system), padY=DPAD_Y+offset;
     // Dark gray bezel: no gray-mode switch or additional video drive pulses.
     for(int y=by;y<by+bh;++y) for(int x=bx;x<bx+bw;++x) {
@@ -96,7 +115,7 @@ inline void draw(Adafruit_GFX& d,InkSystem system=INK_SYSTEM_GB) {
         d.drawPixel(x,y,gray(x,y,12));
     }
     d.drawRect(gx-1,gy-1,gw+2,gh+2,BLACK);
-    centeredText(d,"Ink Boy",103,nes ? 550 : 540,&FreeSansBoldOblique18pt7b);
+    centeredText(d,"Ink Boy",TITLE_X,nes ? 550 : TITLE_Y,&FreeSansBoldOblique18pt7b);
     d.fillRoundRect(DPAD_X-DPAD_HALF,padY-DPAD_ARM,2*DPAD_HALF+1,2*DPAD_ARM+1,5,BLACK);
     d.fillRoundRect(DPAD_X-DPAD_ARM,padY-DPAD_HALF,2*DPAD_ARM+1,2*DPAD_HALF+1,5,BLACK);
     d.fillCircle(A_X,A_Y+offset,AB_RADIUS,BLACK); d.fillCircle(B_X,B_Y+offset,AB_RADIUS,BLACK);
@@ -106,10 +125,10 @@ inline void draw(Adafruit_GFX& d,InkSystem system=INK_SYSTEM_GB) {
     smallButton(d,START_X,"START",offset);
     // Decorative speaker grille, not a promise of audio on this hardware.
     for(int bar=0;bar<5;++bar) {
-        int x=355+bar*24, y=838-bar*10;
-        for(int offset=-2;offset<=2;++offset) d.drawLine(x+offset,y,x+36+offset,y+66,BLACK);
+        int x=GRILLE_X+bar*GRILLE_STEP_X, y=GRILLE_Y-bar*GRILLE_STEP_Y;
+        for(int offset=-2;offset<=2;++offset) d.drawLine(x+offset,y,x+GRILLE_DX+offset,y+GRILLE_DY,BLACK);
     }
-    centeredText(d,"Tap game screen to refresh",262,926,nullptr,1);
+    centeredText(d,"Tap game screen to refresh",HINT_X,HINT_Y,nullptr,1);
     d.setFont(nullptr); d.setTextSize(1); d.setTextWrap(true);
 }
 }

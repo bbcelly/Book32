@@ -1,5 +1,5 @@
 #include "AppPaperboy.h"
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
 #include "ConsoleCore.h"
 #include "RomFormat.h"
 #include "RomStorage.h"
@@ -21,6 +21,31 @@
 #include "NetworkWork.h"
 
 namespace {
+#if defined(BOARD_SEEED_STICKY)
+#define INKBOY_GB_VIDEO_LOG "Ink Boy 2x: SSD1677 per-pixel pulses (25 ms pulses: white 2 / black 2), 20MHz, window 320x288"
+#else
+#define INKBOY_GB_VIDEO_LOG "Ink Boy 3x: fixed Contrast, 6 pulses, 540 rows, 20MHz, window 480x432"
+#endif
+
+// Pause / saves screen geometry, shared by painting and hit testing.
+struct PauseLayout {
+    int left, width;            // full-width buttons
+    int resumeY, resumeH;
+    int slotY, slotStep, slotH; // four slots
+    int saveX, loadX, slotButtonW;
+    int exitY, exitH, restartY, restartH;
+    int messageY, noteY;
+    int confirmTextY, confirmNoteY, confirmY, confirmH, confirmW, confirmRightX;
+    int systemLabelX;
+};
+#if defined(BOARD_SEEED_STICKY)
+constexpr PauseLayout PAUSE = {20, 440, 110, 64, 200, 82, 64, 210, 340, 120,
+                               560, 64, 640, 60, 718, 748, 250, 300, 420, 76, 210, 250, 330};
+#else
+constexpr PauseLayout PAUSE = {20, 480, 125, 70, 240, 90, 70, 225, 370, 130,
+                               650, 75, 750, 70, 850, 900, 280, 330, 460, 80, 225, 275, 350};
+#endif
+
 void label(Book32Display& d, const String& s, int x, int y, int size = 2) {
     d.setFont(nullptr); d.setTextSize(size); d.setTextColor(GxEPD_BLACK);
     d.setCursor(x, y); d.print(s); d.setTextSize(1);
@@ -112,6 +137,10 @@ void AppPaperboy::scan() {
             for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
                 String name = f.name(); name = name.substring(name.lastIndexOf('/') + 1);
                 InkSystem system=inkRomSystem(name.c_str());
+#if defined(BOARD_SEEED_STICKY)
+                // NES (256x240) does not fit the Sticky's 2x video window yet.
+                if (system == INK_SYSTEM_NES) { f.close(); continue; }
+#endif
                 if (!f.isDirectory() && inkRomFilename(name.c_str()) && inkRomSizeValid(system,f.size()) && _roms.size() < 256) {
                     _roms.push_back("/roms/" + name); _systemMask|=1<<system;
                 }
@@ -156,7 +185,7 @@ void AppPaperboy::packVideo(uint8_t* destination) {
         if(indexed) NesViewport::packIndexed(destination,indexed,pitch,palette,_gameRotation);
         else NesViewport::pack2x(destination,inkNesNativeImage(),_gameRotation);
     }
-    else GameViewport::pack3x(destination,_workFrame,_gameRotation);
+    else GameViewport::pack(destination,_workFrame,_gameRotation);
 }
 
 bool AppPaperboy::save() {
@@ -413,7 +442,7 @@ void AppPaperboy::openBook(const String& path) {
         _presentations.reset();
         resetFrameTiming();
         Serial.println(_nesVideo ? "Ink Boy NES 2x: native 256x240, window 512x480, four shades, fixed Contrast" :
-                                  "Ink Boy 3x: fixed Contrast, 6 pulses, 540 rows, 20MHz, window 480x432");
+                                  INKBOY_GB_VIDEO_LOG);
         Serial.printf("Game core: %s; %u us/frame (grayscale, no audio); CPU %u MHz\n",inkConsoleName(),_gamePeriodUs,getCpuFrequencyMhz());
         _lastClean = _lastStats = millis(); _frames = 0; _drawnFrames = 0; _updates = 0;
         if (autoFailed) { _paused = true; _redraw = true; }
@@ -431,9 +460,10 @@ void AppPaperboy::openBook(const String& path) {
 void AppPaperboy::tap(uint16_t x, uint16_t y) {
     if (y < (_playing && _nesVideo ? NesViewport::Y : 60)) { back(); return; }
     if (_paused) {
+        const PauseLayout& p = PAUSE;
         if (_confirmation) {
-            if (inside(x,y,20,460,225,80)) { _confirmation = 0; _redraw = true; }
-            else if (inside(x,y,275,460,225,80)) {
+            if (inside(x,y,p.left,p.confirmY,p.confirmW,p.confirmH)) { _confirmation = 0; _redraw = true; }
+            else if (inside(x,y,p.confirmRightX,p.confirmY,p.confirmW,p.confirmH)) {
                 uint8_t action = _confirmation; _confirmation = 0;
                 if (action == 1) saveState(_selectedSlot);
                 else if (action == 2) { if (loadState(_selectedSlot)) { resumeGame(); return; } }
@@ -449,19 +479,19 @@ void AppPaperboy::tap(uint16_t x, uint16_t y) {
                 }
                 _redraw = true;
             }
-        } else if (inside(x,y,20,125,480,70)) resumeGame();
-        else if (y >= 240 && y < 600) {
-            unsigned slot = (y - 240) / 90;
-            if ((y-240) % 90 < 70) {
+        } else if (inside(x,y,p.left,p.resumeY,p.width,p.resumeH)) resumeGame();
+        else if (y >= p.slotY && y < p.slotY + 4 * p.slotStep) {
+            unsigned slot = (y - p.slotY) / p.slotStep;
+            if ((y - p.slotY) % p.slotStep < p.slotH) {
                 _selectedSlot = slot;
-                if (x >= 370 && x < 500 && _slots[slot]) _confirmation = 2;
-                else if (x >= 225 && x < 355 && slot && !_coreFault) {
+                if (x >= p.loadX && x < p.loadX + p.slotButtonW && _slots[slot]) _confirmation = 2;
+                else if (x >= p.saveX && x < p.saveX + p.slotButtonW && slot && !_coreFault) {
                     if (_slots[slot]) _confirmation = 1; else saveState(slot);
                 }
                 _redraw = true;
             }
-        } else if (inside(x,y,20,650,480,75)) { exitGame(); }
-        else if (inside(x,y,20,750,480,70)) { _confirmation = 3; _redraw = true; }
+        } else if (inside(x,y,p.left,p.exitY,p.width,p.exitH)) { exitGame(); }
+        else if (inside(x,y,p.left,p.restartY,p.width,p.restartH)) { _confirmation = 3; _redraw = true; }
         return;
     }
     if (_playing) {
@@ -480,10 +510,12 @@ void AppPaperboy::tap(uint16_t x, uint16_t y) {
     if(row>=0) {
         unsigned index=_page*InkBoyLibraryUi::ROWS+row;
         if(index<_filtered.size())openBook(_roms[_filtered[index]]);
-    } else if (y >= InkBoyLibraryUi::NAV_Y && y < InkBoyLibraryUi::NAV_Y+InkBoyLibraryUi::NAV_H) {
-        if (x>=20&&x<164&&_page) --_page;
-        else if (x>=360&&x<504&&(_page+1)*InkBoyLibraryUi::ROWS<_filtered.size()) ++_page;
-        else if (x>=190&&x<334) scan();
+    } else {
+        const int nav = InkBoyLibraryUi::navAt(x,y);
+        if (nav < 0) return;
+        if (nav==0&&_page) --_page;
+        else if (nav==2&&(_page+1)*InkBoyLibraryUi::ROWS<_filtered.size()) ++_page;
+        else if (nav==1) scan();
         _redraw = true;
     }
 }
@@ -577,6 +609,11 @@ void AppPaperboy::update() {
         int x = points[i].x, y = points[i].y;
         buttons |= InkBoyUi::buttonsAt(x,y,inkConsoleSystem());
     }
+#if defined(BOARD_SEEED_STICKY)
+    // The side keys double as A and B while held, alongside the touch pad.
+    if (digitalRead(PIN_BUTTON_UP) == LOW) buttons |= 1;
+    if (digitalRead(PIN_BUTTON_DOWN) == LOW) buttons |= 2;
+#endif
     _buttons = buttons;
     if (buttons) BatteryMgr::getInstance().resetIdleTimer();
     if (millis() - _lastStats >= 5000) {
@@ -585,7 +622,7 @@ void AppPaperboy::update() {
         const unsigned drawn = _drawnFrames.exchange(0);
         const uint32_t work = _emulationUs.exchange(0), packing = _packingUs.exchange(0), slow = _overBudgetFrames.exchange(0);
         Serial.printf("Ink Boy %dx %s: emulator %.1f fps; rendered %.1f fps; core %.2f + pack %.2f ms (%u slow); panel %.1f scans/s; handoff %.2f ms; drive %.2f ms\n",
-                      _nesVideo ? 2 : 3, modeLabel(), frames/seconds, drawn/seconds,
+                      _nesVideo ? NesViewport::SCALE : GameViewport::SCALE, modeLabel(), frames/seconds, drawn/seconds,
                       frames ? work/(1000.f*frames) : 0, frames ? packing/(1000.f*frames) : 0, slow, _updates/seconds,
                       _regularUpdates ? _renderUs / (1000.f * _regularUpdates) : 0,
                       _regularUpdates ? _refreshUs / (1000.f * _regularUpdates) : 0);
@@ -603,7 +640,7 @@ void AppPaperboy::paintGame() {
     auto& d = DisplayMgr::getInstance().getDisplay();
     d.fillScreen(GxEPD_WHITE);
     label(d, "< Pause / saves", 20, 24);
-    label(d, inkConsoleName(), 350, 24, 1);
+    label(d, inkConsoleName(), PAUSE.systemLabelX, 24, 1);
     InkBoyUi::draw(d,inkConsoleSystem());
 }
 
@@ -615,25 +652,27 @@ void AppPaperboy::paintPause() {
     auto button = [&](const String& text, int x, int y, int w, int h) {
         d.drawRoundRect(x,y,w,h,8,GxEPD_BLACK); label(d,text,x+14,y+(h-16)/2);
     };
+    const PauseLayout& p = PAUSE;
     if (_confirmation) {
         label(d, _confirmation == 1 ? "Replace this save slot?" :
-                 _confirmation == 2 ? "Load this save state?" : "Restart from the title screen?", 20, 280);
+                 _confirmation == 2 ? "Load this save state?" : "Restart from the title screen?", p.left, p.confirmTextY);
         label(d, _confirmation == 2 ? "Unsaved play will be discarded." :
-                 _confirmation == 3 ? "Existing slots are kept." : "The old slot will be replaced.", 20, 330);
-        button("Cancel",20,460,225,80); button("Confirm",275,460,225,80);
+                 _confirmation == 3 ? "Existing slots are kept." : "The old slot will be replaced.", p.left, p.confirmNoteY);
+        button("Cancel",p.left,p.confirmY,p.confirmW,p.confirmH);
+        button("Confirm",p.confirmRightX,p.confirmY,p.confirmW,p.confirmH);
     } else {
-        button("Resume game",20,125,480,70);
+        button("Resume game",p.left,p.resumeY,p.width,p.resumeH);
         for (unsigned i = 0; i < 4; ++i) {
-            int y = 240 + i*90;
-            label(d, i ? "Slot " + String(i) : "Auto resume",20,y+10);
-            label(d,_slots[i] ? "Saved" : "Empty",20,y+37);
-            if (i) button("Save",225,y,130,70);
-            if (_slots[i]) button("Load",370,y,130,70);
+            int y = p.slotY + i*p.slotStep;
+            label(d, i ? "Slot " + String(i) : "Auto resume",p.left,y+10);
+            label(d,_slots[i] ? "Saved" : "Empty",p.left,y+37);
+            if (i) button("Save",p.saveX,y,p.slotButtonW,p.slotH);
+            if (_slots[i]) button("Load",p.loadX,y,p.slotButtonW,p.slotH);
         }
-        button("Save & exit to ROM list",20,650,480,75);
-        button("Restart game",20,750,480,70);
-        label(d,_message,20,850);
-        label(d,"Auto resume saves on exit / sleep.",20,900);
+        button("Save & exit to ROM list",p.left,p.exitY,p.width,p.exitH);
+        button("Restart game",p.left,p.restartY,p.width,p.restartH);
+        label(d,_message,p.left,p.messageY);
+        label(d,"Auto resume saves on exit / sleep.",p.left,p.noteY);
     }
     d.refresh(false);
 }
