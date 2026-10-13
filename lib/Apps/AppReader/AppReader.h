@@ -40,6 +40,9 @@ public:
     const char* getName() override { return "eReader"; }
 
     bool hasBootResume();
+    // Sleep screen: draws the cover of the most recently read book full screen
+    // with `message` under it. Returns false when there is no usable cover.
+    static bool drawSleepCover(const String& message);
     void resumeSavedBookOnStart();
     void handleInput(InputAction action);
     void handleTouch(uint16_t x, uint16_t y);

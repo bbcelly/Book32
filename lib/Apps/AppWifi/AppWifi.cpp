@@ -143,6 +143,7 @@ void AppWifi::handleInput(InputAction action) {
 void AppWifi::loadDeviceSettings() {
     _sleepTimeoutMinutes = SLEEP_TIMEOUT_DEFAULT_MINUTES;
     _sleepMessage = SLEEP_MESSAGE_DEFAULT;
+    _sleepShowCover = true;
     _fontSizePt = 18;
     _rotation = DisplayMgr::getInstance().getRotation();
     _showChapter = true;
@@ -157,6 +158,7 @@ void AppWifi::loadDeviceSettings() {
             if (!deserializeJson(doc, file)) {
                 _sleepTimeoutMinutes = doc["sleepTimeout"] | SLEEP_TIMEOUT_DEFAULT_MINUTES;
                 _sleepMessage = doc["sleepMessage"] | SLEEP_MESSAGE_DEFAULT;
+                _sleepShowCover = strcmp(doc["sleepScreen"] | "cover", "message") != 0;
             }
             file.close();
         }
@@ -186,6 +188,14 @@ void AppWifi::showReaderDisplay(const String& status) {
     _needsRedraw = true;
 }
 
+void AppWifi::showSleepScreen(const String& status) {
+    _view = SLEEP_SCREEN;
+    _status = status;
+    _fullRefresh = true;
+    _passwordOnlyRedraw = false;
+    _needsRedraw = true;
+}
+
 void AppWifi::showSettingsHome(const String& status) {
     loadDeviceSettings();
     _view = SETTINGS_HOME;
@@ -200,6 +210,7 @@ void AppWifi::saveSleepSettings() {
     doc["configVersion"] = SLEEP_CONFIG_VERSION;
     doc["sleepTimeout"] = _sleepTimeoutMinutes;
     doc["sleepMessage"] = _sleepMessage;
+    doc["sleepScreen"] = _sleepShowCover ? "cover" : "message";
     File file = EbookFS.open("/sleep_config.json", FILE_WRITE);
     if (!file) {
         _status = "Could not save sleep settings";
@@ -424,14 +435,7 @@ void AppWifi::handleTouch(uint16_t x, uint16_t y) {
             _needsRedraw = true;
         } else if (row == 2) {
             SoundMgr::getInstance().beep();
-            _messageDraft = _sleepMessage;
-            _uppercase = false;
-            _symbols = false;
-            _view = MESSAGE_KEYBOARD;
-            _status = "Type the message shown during sleep";
-            _fullRefresh = true;
-            _passwordOnlyRedraw = false;
-            _needsRedraw = true;
+            showSleepScreen();
         } else if (row == 3) {
             SoundMgr::getInstance().beep();
             showReaderDisplay();
@@ -457,6 +461,35 @@ void AppWifi::handleTouch(uint16_t x, uint16_t y) {
             _rotation = _rotation == 3 ? 1 : 3;
             saveDisplayRotation();
             _fullRefresh = true;
+            _needsRedraw = true;
+        }
+        return;
+    }
+
+    if (_view == SLEEP_SCREEN) {
+        if (y >= 55 && y < 112) {
+            SoundMgr::getInstance().beep();
+            showSettingsHome();
+            return;
+        }
+        if (y < SETTINGS_TOP) return;
+        int row = (y - SETTINGS_TOP) / SETTINGS_ROW_HEIGHT;
+        int withinRow = (y - SETTINGS_TOP) % SETTINGS_ROW_HEIGHT;
+        if (row < 0 || row > 1 || withinRow >= SETTINGS_CARD_HEIGHT) return;
+        SoundMgr::getInstance().beep();
+        if (row == 0) {
+            _sleepShowCover = !_sleepShowCover;
+            saveSleepSettings();
+            _fullRefresh = true;
+            _needsRedraw = true;
+        } else {
+            _messageDraft = _sleepMessage;
+            _uppercase = false;
+            _symbols = false;
+            _view = MESSAGE_KEYBOARD;
+            _status = "Type the message shown during sleep";
+            _fullRefresh = true;
+            _passwordOnlyRedraw = false;
             _needsRedraw = true;
         }
         return;
@@ -591,7 +624,7 @@ void AppWifi::handleTouch(uint16_t x, uint16_t y) {
             SoundMgr::getInstance().beep();
             _sleepMessage = _messageDraft;
             saveSleepSettings();
-            showSettingsHome("Sleep message saved");
+            showSleepScreen("Sleep message saved");
         } else {
             SoundMgr::getInstance().beep();
             beginConnect();
@@ -642,6 +675,7 @@ void AppWifi::draw() {
     _needsRedraw = false;
     if (_view == SETTINGS_HOME) drawSettingsHome();
     else if (_view == READER_DISPLAY) drawReaderDisplay();
+    else if (_view == SLEEP_SCREEN) drawSleepScreen();
     else if (_view == LIGHT_BUTTONS) drawLightButtons();
     else if (_view == NETWORK_LIST) drawNetworkList();
     else if (_view == PASSWORD_KEYBOARD || _view == MESSAGE_KEYBOARD) drawKeyboard();
@@ -683,7 +717,7 @@ void AppWifi::drawSettingsHome() {
         drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 1,
                         "Sleep timeout", timeoutValue);
         drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 2,
-                        "Sleep message", _sleepMessage);
+                        "Sleep screen", _sleepShowCover ? String("Book cover") : "Message: " + _sleepMessage);
         drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 3,
                         "Reading display", readerDisplayValue);
         drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 4,
@@ -750,6 +784,33 @@ void AppWifi::drawReaderDisplay() {
         drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 3,
                         "Reading percentage", _showReadingPercentage ? "Shown" : "Hidden");
         fontMgr.drawTextCentered(display, "Tap an option to change it", 760,
+                                 FONT_SIZE_SMALL, GxEPD_BLACK);
+    } while (display.nextPage());
+}
+
+void AppWifi::drawSleepScreen() {
+    Book32Display& display = DisplayMgr::getInstance().getDisplay();
+    FontMgr& fontMgr = FontMgr::getInstance();
+    if (_fullRefresh) display.setFullWindow();
+    else display.setPartialWindow(0, 0, display.width(), display.height());
+    _fullRefresh = false;
+
+    display.firstPage();
+    do {
+        display.fillScreen(GxEPD_WHITE);
+        fontMgr.drawText(display, "Sleep Screen", 15, 35, FONT_SIZE_SUBTITLE, GxEPD_BLACK);
+        display.drawLine(0, 50, display.width(), 50, GxEPD_BLACK);
+        drawCenteredButton(display, fontMgr, 10, 58, display.width() - 20, 52, "< Settings");
+        if (_status.length()) {
+            String status = fittedText(fontMgr, _status, display.width() - 30, FONT_SIZE_SMALL);
+            fontMgr.drawTextCentered(display, status.c_str(), 132, FONT_SIZE_SMALL, GxEPD_BLACK);
+        }
+
+        drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 0,
+                        "While asleep, show", _sleepShowCover ? "Cover of the book you're reading" : "Sleep message");
+        drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 1,
+                        "Sleep message", _sleepMessage);
+        fontMgr.drawTextCentered(display, "The message is shown under the cover", 760,
                                  FONT_SIZE_SMALL, GxEPD_BLACK);
     } while (display.nextPage());
 }

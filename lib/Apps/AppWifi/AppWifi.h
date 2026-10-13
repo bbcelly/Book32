@@ -32,6 +32,7 @@ private:
     enum View {
         SETTINGS_HOME,
         READER_DISPLAY,
+        SLEEP_SCREEN,
         LIGHT_BUTTONS,
         NETWORK_LIST,
         PASSWORD_KEYBOARD,
@@ -49,6 +50,7 @@ private:
     String _messageDraft;
     String _status;
     int _sleepTimeoutMinutes = SLEEP_TIMEOUT_DEFAULT_MINUTES;
+    bool _sleepShowCover = true;  // sleep screen: book cover (default) or message
     int _fontSizePt = 18;
     int _rotation = 3;
     bool _showChapter = true;
@@ -78,8 +80,10 @@ private:
     void saveDisplayRotation();
     void showSettingsHome(const String& status = "");
     void showReaderDisplay(const String& status = "");
+    void showSleepScreen(const String& status = "");
     void drawSettingsHome();
     void drawReaderDisplay();
+    void drawSleepScreen();
     void drawLightButtons();
     void drawNetworkList();
     void drawKeyboard();

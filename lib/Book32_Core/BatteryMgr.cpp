@@ -12,8 +12,10 @@
 #include <ArduinoJson.h>
 #include <Fonts/FreeSans18pt7b.h>
 #include <esp32-hal-cpu.h>
-#if defined(BOARD_LILYGO_T5S3_PRO)
 #include <WiFi.h>
+#include <driver/gpio.h>
+#include <driver/rtc_io.h>
+#if defined(BOARD_LILYGO_T5S3_PRO)
 #include <Wire.h>
 static bool lilygoGaugeWord(uint8_t reg, uint16_t& value) {
     Wire.beginTransmission(0x55);
@@ -25,9 +27,7 @@ static bool lilygoGaugeWord(uint8_t reg, uint16_t& value) {
 }
 #endif
 #if defined(BOARD_SEEED_STICKY)
-#include <WiFi.h>
 #include <Wire.h>
-#include <driver/gpio.h>
 #endif
 
 // Static constants
@@ -44,8 +44,9 @@ static int voltageToPercentage(float voltage) {
                  (BATTERY_FULL_VOLTAGE - BATTERY_EMPTY_VOLTAGE)) * 100.0f + 0.5f);
 }
 
-#if defined(BOARD_SEEED_STICKY)
-static void holdStickyPin(int pin, uint8_t level) {
+#if !defined(BOARD_LILYGO_T5S3_PRO)
+// Drive a pin to a fixed level and keep it there through deep sleep.
+static void holdSleepPin(int pin, uint8_t level) {
     const gpio_num_t gpio = static_cast<gpio_num_t>(pin);
     gpio_hold_dis(gpio);
     pinMode(pin, OUTPUT);
@@ -335,6 +336,7 @@ void BatteryMgr::shutdownLowBattery() {
     Serial.printf("Voltage: %.2fV\n", _cachedStatus.voltage);
     Serial.flush();
     _sleepMessage = "Battery low - connect USB to charge";
+    _lowBatterySleep = true;  // never hide this warning behind a book cover
     enterIdleSleep();
 }
 
@@ -366,6 +368,7 @@ bool BatteryMgr::isCharging() {
 void BatteryMgr::loadSleepSettings() {
     _sleepTimeoutMinutes = SLEEP_TIMEOUT_DEFAULT_MINUTES;
     _sleepMessage = SLEEP_MESSAGE_DEFAULT;
+    _sleepShowCover = true;
     bool saveMigratedSettings = false;
 
     // Load from EbookFS partition. Sticky versions before 1.2.13 wrote an
@@ -384,7 +387,11 @@ void BatteryMgr::loadSleepSettings() {
                 if (sleepMessageNeedsMigration(configVersion, _sleepMessage.c_str())) {
                     _sleepMessage = SLEEP_MESSAGE_DEFAULT;
                 }
-#if defined(BOARD_SEEED_STICKY)
+                _sleepShowCover = strcmp(doc["sleepScreen"] | "cover", "message") != 0;
+#if !defined(BOARD_LILYGO_T5S3_PRO)
+                // Sticky (v2) and Book32 (v3) once stored an implicit 0 because
+                // idle sleep was off by default; give them the 10-minute default
+                // once. An explicit Off saved at the current version stays off.
                 if (configVersion < SLEEP_CONFIG_VERSION && _sleepTimeoutMinutes == 0) {
                     _sleepTimeoutMinutes = SLEEP_TIMEOUT_DEFAULT_MINUTES;
                 }
@@ -405,6 +412,7 @@ void BatteryMgr::loadSleepSettings() {
         doc["configVersion"] = SLEEP_CONFIG_VERSION;
         doc["sleepTimeout"] = _sleepTimeoutMinutes;
         doc["sleepMessage"] = _sleepMessage;
+        doc["sleepScreen"] = _sleepShowCover ? "cover" : "message";
         File file = EbookFS.open("/sleep_config.json", FILE_WRITE);
         if (file) {
             serializeJson(doc, file);
@@ -451,15 +459,21 @@ void BatteryMgr::enterIdleSleep() {
     if (currentApp) currentApp->stop();
     InputMgr::getInstance().prepareForSleep();
     WebMgr::getInstance().stop();
-#if BOOK32_HAS_TOUCH
+    // Every board (including Book32's management hotspot) powers the radio
+    // fully down before sleeping.
     WiFi.setAutoReconnect(false);
     WiFi.softAPdisconnect(true);
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
-#endif
 
-    // Display sleep message on e-ink.
+    // Sleep screen: the cover of the book being read (default), with the
+    // message under it, or the message alone. Low battery always shows its
+    // warning.
     Book32Display& display = DisplayMgr::getInstance().getDisplay();
+    const bool drewCover = _sleepShowCover && !_lowBatterySleep && _coverRenderer &&
+                           _coverRenderer(_sleepMessage);
+    Serial.printf("Sleep screen: %s\n", drewCover ? "book cover" : "message");
+    if (!drewCover) {
     display.setFullWindow();
     display.firstPage();
     do {
@@ -479,6 +493,7 @@ void BatteryMgr::enterIdleSleep() {
         display.setCursor(x, y);
         display.print(_sleepMessage);
     } while (display.nextPage());
+    }
 
     // Wait for display to finish updating.
     delay(100);
@@ -502,19 +517,36 @@ void BatteryMgr::enterIdleSleep() {
 
     // Match Seeed/FreeInk's rail shutdown: prevent back-powering through reset,
     // gate every switched peripheral, and keep the charger enabled in sleep.
-    holdStickyPin(EPD_RST, LOW);
-    holdStickyPin(EPD_ENABLE, LOW);
-    holdStickyPin(TOUCH_RST, LOW);
-    holdStickyPin(TOUCH_ENABLE, LOW);
-    holdStickyPin(SD_POWER_ENABLE, LOW);
-    holdStickyPin(PIN_MIC_ENABLE, LOW);
-    holdStickyPin(PIN_BUZZER, LOW);
-    holdStickyPin(PIN_CHARGE_ENABLE, LOW);
+    holdSleepPin(EPD_RST, LOW);
+    holdSleepPin(EPD_ENABLE, LOW);
+    holdSleepPin(TOUCH_RST, LOW);
+    holdSleepPin(TOUCH_ENABLE, LOW);
+    holdSleepPin(SD_POWER_ENABLE, LOW);
+    holdSleepPin(PIN_MIC_ENABLE, LOW);
+    holdSleepPin(PIN_BUZZER, LOW);
+    holdSleepPin(PIN_CHARGE_ENABLE, LOW);
 
     esp_sleep_config_gpio_isolate();
     gpio_deep_sleep_hold_en();
 #else
+    // Book32: the same care as the touch boards. Put the panel controller into
+    // its own deep sleep, arm the wake button only after the press that may
+    // have requested sleep is released, and hold the outputs at fixed levels
+    // so the battery divider stays off and the controller is not glitched
+    // awake while the ESP32-S3 sleeps.
+    display.hibernate();
+    pinMode(PIN_BUTTON, INPUT_PULLUP);
+    while (digitalRead(PIN_BUTTON) == LOW) delay(50);
+    delay(50);
+#ifdef PIN_VBAT_SWITCH
+    holdSleepPin(PIN_VBAT_SWITCH, !VBAT_SWITCH_LEVEL);
+#endif
+    holdSleepPin(EPD_CS, HIGH);
+    holdSleepPin(EPD_RST, HIGH);
+    gpio_deep_sleep_hold_en();
     esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BUTTON, 0);
+    rtc_gpio_pullup_en((gpio_num_t)PIN_BUTTON);
+    rtc_gpio_pulldown_dis((gpio_num_t)PIN_BUTTON);
 #endif
 
     // Enter deep sleep

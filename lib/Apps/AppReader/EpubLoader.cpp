@@ -1261,12 +1261,13 @@ bool EpubLoader::getImageDimensions(const String& href, EpubImageInfo& info) {
     return valid;
 }
 
-bool EpubLoader::decodeImage(const String& href, int maxWidth, int maxHeight, EpubBitmap& bitmap) {
+bool EpubLoader::decodeImage(const String& href, int maxWidth, int maxHeight, EpubBitmap& bitmap,
+                             EpubImageQuality quality) {
     size_t size = 0;
     uint8_t* data = readItemBytes(href, size);
     if (!data) return false;
     unsigned long started = millis();
-    bool decoded = EpubImageDecoder::decode(data, size, maxWidth, maxHeight, bitmap);
+    bool decoded = EpubImageDecoder::decode(data, size, maxWidth, maxHeight, bitmap, quality);
     free(data);
     Serial.printf("EPUB image %s: %s in %lu ms (%dx%d)\n", href.c_str(), decoded ? "decoded" : "failed",
                   millis() - started, bitmap.width, bitmap.height);

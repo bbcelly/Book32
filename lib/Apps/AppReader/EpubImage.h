@@ -32,8 +32,15 @@ private:
     int _stride = 0;
 };
 
+// Thumbnail: library covers and inline book images (crisp Atkinson dither).
+// Cover: full-screen sleep covers (serpentine Floyd-Steinberg, which keeps
+// smooth tones on large images). Cover mode refuses progressive JPEGs, whose
+// decoder path can overrun its buffers, so callers fall back safely.
+enum class EpubImageQuality { Thumbnail, Cover };
+
 class EpubImageDecoder {
 public:
     static bool dimensions(const uint8_t* data, size_t size, EpubImageInfo& info);
-    static bool decode(const uint8_t* data, size_t size, int maxWidth, int maxHeight, EpubBitmap& bitmap);
+    static bool decode(const uint8_t* data, size_t size, int maxWidth, int maxHeight, EpubBitmap& bitmap,
+                       EpubImageQuality quality = EpubImageQuality::Thumbnail);
 };

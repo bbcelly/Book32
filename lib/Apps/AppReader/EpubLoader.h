@@ -122,7 +122,8 @@ public:
     std::vector<ContentNode> getChapterContentRich(int index);  // Rich formatted content
     String getCoverHref() const { return coverHref; }
     bool getImageDimensions(const String& href, EpubImageInfo& info);
-    bool decodeImage(const String& href, int maxWidth, int maxHeight, EpubBitmap& bitmap);
+    bool decodeImage(const String& href, int maxWidth, int maxHeight, EpubBitmap& bitmap,
+                     EpubImageQuality quality = EpubImageQuality::Thumbnail);
     
     // Font support
     std::vector<FontInfo> getFonts();

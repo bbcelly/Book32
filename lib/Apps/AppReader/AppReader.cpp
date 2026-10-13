@@ -578,6 +578,57 @@ void AppReader::loadBookCover(BookEntry& book, int width, int height) {
     saveCachedCover(book, width, height);
 }
 
+bool AppReader::drawSleepCover(const String& message) {
+    // The book most recently opened, whether or not it is still open.
+    String lastBook;
+    File progress = EbookFS.open(READER_PROGRESS_PATH, "r");
+    if (progress) {
+        DynamicJsonDocument doc(2048);
+        if (!deserializeJson(doc, progress)) lastBook = doc["lastBook"] | "";
+        progress.close();
+    }
+    if (lastBook.length() == 0 || !EbookFS.exists(lastBook)) return false;
+
+    Book32Display& display = DisplayMgr::getInstance().getDisplay();
+    const int screenW = display.width();
+    const int screenH = display.height();
+    // Leave a strip under the cover for the wake message.
+    const int messageStrip = message.length() ? 56 : 0;
+    const int margin = 12;
+    const int maxW = screenW - 2 * margin;
+    const int maxH = screenH - 2 * margin - messageStrip;
+
+    EpubLoader loader;
+    String fullPath = "/ebooks" + lastBook;
+    if (!loader.open(fullPath.c_str(), false)) return false;
+    String coverHref = loader.getCoverHref();
+    EpubBitmap cover;
+    const bool decoded = coverHref.length() &&
+                         loader.decodeImage(coverHref, maxW, maxH, cover, EpubImageQuality::Cover);
+    loader.close();
+    if (!decoded || !cover.valid()) return false;
+
+    const int coverX = (screenW - cover.width) / 2;
+    const int coverY = margin + (maxH - cover.height) / 2;
+    display.setFullWindow();
+    display.firstPage();
+    do {
+        display.fillScreen(GxEPD_WHITE);
+        cover.draw(display, coverX, coverY);
+        if (messageStrip) {
+            display.setFont(&FreeSans12pt7b);
+            display.setTextColor(GxEPD_BLACK);
+            int16_t bx, by;
+            uint16_t bw, bh;
+            display.getTextBounds(message.c_str(), 0, 0, &bx, &by, &bw, &bh);
+            display.setCursor((screenW - bw) / 2 - bx, screenH - margin - messageStrip / 2 + bh / 2 - (bh + by));
+            display.print(message);
+        }
+    } while (display.nextPage());
+    Serial.printf("Sleep cover: %s (%dx%d)\n", lastBook.c_str(), cover.width, cover.height);
+    return true;
+}
+
 void AppReader::handleInput(InputAction action) {
     if (action == INPUT_NONE) return;
 #if defined(BOARD_LILYGO_T5S3_PRO)

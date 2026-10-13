@@ -651,6 +651,7 @@ function getSleepSettings() {
             if (data.sleepMessage !== undefined) {
                 document.getElementById('sleep-message').value = data.sleepMessage;
             }
+            document.getElementById('sleep-screen').value = data.sleepScreen === 'message' ? 'message' : 'cover';
             if (data.defaultSleepMessage) document.getElementById('sleep-message').placeholder = data.defaultSleepMessage;
         })
         .catch(error => console.error('Error loading sleep settings:', error));
@@ -659,6 +660,7 @@ function getSleepSettings() {
 function saveSleepSettings() {
     const sleepTimeout = parseInt(document.getElementById('sleep-timeout').value);
     const sleepMessage = document.getElementById('sleep-message').value;
+    const sleepScreen = document.getElementById('sleep-screen').value;
     const statusDiv = document.getElementById('sleep-settings-status');
 
     fetch('/api/settings/sleep', {
@@ -666,7 +668,7 @@ function saveSleepSettings() {
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ sleepTimeout: sleepTimeout, sleepMessage: sleepMessage }),
+        body: JSON.stringify({ sleepTimeout: sleepTimeout, sleepMessage: sleepMessage, sleepScreen: sleepScreen }),
     })
         .then(response => response.json())
         .then(data => {

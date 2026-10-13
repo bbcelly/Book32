@@ -870,6 +870,7 @@ void WebMgr::setupEndpoints() {
         AsyncResponseStream *response = request->beginResponseStream("application/json");
         DynamicJsonDocument doc(512);
         doc["defaultSleepMessage"] = SLEEP_MESSAGE_DEFAULT;
+        doc["sleepScreen"] = "cover";  // default; replaced by the saved choice below
 
         // Try to load existing settings from EbookFS
         if (EbookFS.exists("/sleep_config.json")) {
@@ -879,6 +880,7 @@ void WebMgr::setupEndpoints() {
                 if (!deserializeJson(savedDoc, file)) {
                     doc["sleepTimeout"] = savedDoc.containsKey("sleepTimeout") ? savedDoc["sleepTimeout"].as<int>() : SLEEP_TIMEOUT_DEFAULT_MINUTES;
                     doc["sleepMessage"] = savedDoc["sleepMessage"] | SLEEP_MESSAGE_DEFAULT;
+                    doc["sleepScreen"] = savedDoc["sleepScreen"] | "cover";
                 } else {
                     doc["sleepTimeout"] = SLEEP_TIMEOUT_DEFAULT_MINUTES;
                     doc["sleepMessage"] = SLEEP_MESSAGE_DEFAULT;
@@ -900,9 +902,18 @@ void WebMgr::setupEndpoints() {
     // API: Sleep Settings - POST
     AsyncCallbackJsonWebHandler* sleepSettingsHandler = new AsyncCallbackJsonWebHandler("/api/settings/sleep",
         [](AsyncWebServerRequest *request, JsonVariant &json) {
+            // Merge into the saved settings so a partial save (or an older
+            // cached page) never drops a setting it does not know about.
             DynamicJsonDocument doc(512);
+            if (EbookFS.exists("/sleep_config.json")) {
+                File existing = EbookFS.open("/sleep_config.json", "r");
+                if (existing) { deserializeJson(doc, existing); existing.close(); }
+            }
             doc["configVersion"] = SLEEP_CONFIG_VERSION;
 
+            if (json.containsKey("sleepScreen")) {
+                doc["sleepScreen"] = strcmp(json["sleepScreen"] | "cover", "message") == 0 ? "message" : "cover";
+            }
             if (json.containsKey("sleepTimeout")) {
                 doc["sleepTimeout"] = json["sleepTimeout"].as<int>();
             }

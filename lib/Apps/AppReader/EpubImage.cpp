@@ -56,6 +56,26 @@ bool dimensionsFromJpegHeader(const uint8_t* data, size_t size, EpubImageInfo& i
     return false;
 }
 
+// True when the first frame header is a progressive one (SOF2/6/10/14).
+bool jpegIsProgressive(const uint8_t* data, size_t size) {
+    if (!isJpeg(data, size)) return false;
+    size_t position = 2;
+    while (position + 4 < size) {
+        while (position < size && data[position] != 0xFF) position++;
+        while (position < size && data[position] == 0xFF) position++;
+        if (position >= size) break;
+        uint8_t marker = data[position++];
+        if (marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+        if (marker == 0xC2 || marker == 0xC6 || marker == 0xCA || marker == 0xCE) return true;
+        if ((marker >= 0xC0 && marker <= 0xCF) && marker != 0xC4 && marker != 0xC8 && marker != 0xCC) return false;
+        if (position + 2 > size) break;
+        uint16_t length = static_cast<uint16_t>((data[position] << 8) | data[position + 1]);
+        if (length < 2) break;
+        position += length;
+    }
+    return false;
+}
+
 void fitDimensions(int sourceWidth, int sourceHeight, int maxWidth, int maxHeight, int& width, int& height) {
     if (sourceWidth <= 0 || sourceHeight <= 0 || maxWidth <= 0 || maxHeight <= 0) {
         width = 0;
@@ -117,8 +137,22 @@ bool isSupportedPngFormat(int pixelType, int bitsPerPixel) {
     return bitsPerPixel == 8;
 }
 
+// Gray for a colour pixel. Plain luma renders saturated colours (bright red
+// text on a dark background, say) almost the same gray as their surroundings.
+// Saturated colours look brighter to the eye than their luma
+// (Helmholtz-Kohlrausch), so the perceptual mode adds half the chroma, scaled
+// by brightness: vivid highlights lift, dim tints and neutrals barely move.
+inline uint8_t colorToGray(uint8_t r, uint8_t g, uint8_t b, bool perceptual) {
+    const int luma = (r * 77 + g * 150 + b * 29) >> 8;
+    if (!perceptual) return static_cast<uint8_t>(luma);
+    const int brightest = max(r, max(g, b));
+    const int chroma = brightest - min(r, min(g, b));
+    return static_cast<uint8_t>(min(255, luma + ((chroma * brightest) >> 9)));
+}
+
 struct JpegContext {
     uint8_t* gray = nullptr;
+    bool rgb565 = false;  // pixels arrive as RGB565 for perceptual gray
     uint8_t* intermediate = nullptr;
     int scaledSourceWidth = 0;
     int scaledSourceHeight = 0;
@@ -143,6 +177,21 @@ int jpegDraw(JPEGDRAW* draw) {
         int copyWidth = min(validWidth, context->scaledSourceWidth - draw->x);
         int copyHeight = min(draw->iHeight, context->scaledSourceHeight - draw->y);
         if (copyWidth <= 0 || copyHeight <= 0) return 1;
+        if (context->rgb565) {
+            const uint16_t* colors = reinterpret_cast<const uint16_t*>(draw->pPixels);
+            for (int row = 0; row < copyHeight; row++) {
+                const uint16_t* in = colors + static_cast<size_t>(row) * sourceStride;
+                uint8_t* out = context->intermediate + static_cast<size_t>(draw->y + row) * context->scaledSourceWidth + draw->x;
+                for (int x = 0; x < copyWidth; x++) {
+                    const uint16_t c = in[x];
+                    const uint8_t r = ((c >> 11) & 0x1F) * 255 / 31;
+                    const uint8_t g = ((c >> 5) & 0x3F) * 255 / 63;
+                    const uint8_t b = (c & 0x1F) * 255 / 31;
+                    out[x] = colorToGray(r, g, b, true);
+                }
+            }
+            return 1;
+        }
         for (int row = 0; row < copyHeight; row++) {
             memcpy(context->intermediate + static_cast<size_t>(draw->y + row) * context->scaledSourceWidth + draw->x,
                    pixels + static_cast<size_t>(row) * sourceStride, copyWidth);
@@ -273,6 +322,7 @@ int chooseJpegScale(int sourceWidth, int sourceHeight, int targetWidth, int targ
 struct PngContext {
     PNG* decoder = nullptr;
     uint8_t* gray = nullptr;
+    bool perceptual = false;  // see colorToGray()
     uint8_t* sourceLine = nullptr;
     uint8_t* rows = nullptr;  // sourceHeight x targetWidth, for area resampling
     int sourceWidth = 0;
@@ -296,7 +346,7 @@ uint8_t expandSample(uint8_t sample, int bitsPerSample) {
     return static_cast<uint8_t>((sample * 255U) / ((1U << bitsPerSample) - 1U));
 }
 
-void pngLineToGray(PNGDRAW* draw, uint8_t* output, int width, uint32_t transparentColor) {
+void pngLineToGray(PNGDRAW* draw, uint8_t* output, int width, uint32_t transparentColor, bool perceptual) {
     const uint8_t* pixels = draw->pPixels;
     int bits = draw->iBpp;
     switch (draw->iPixelType) {
@@ -315,7 +365,7 @@ void pngLineToGray(PNGDRAW* draw, uint8_t* output, int width, uint32_t transpare
                                  (static_cast<uint32_t>(pixel[1]) << 8) | pixel[2];
                 output[x] = (draw->iHasAlpha && color == transparentColor)
                                 ? 255
-                                : static_cast<uint8_t>((pixel[0] * 77 + pixel[1] * 150 + pixel[2] * 29) >> 8);
+                                : colorToGray(pixel[0], pixel[1], pixel[2], perceptual);
             }
             break;
         case PNG_PIXEL_INDEXED:
@@ -325,7 +375,7 @@ void pngLineToGray(PNGDRAW* draw, uint8_t* output, int width, uint32_t transpare
                 uint8_t alpha = (draw->iHasAlpha && draw->pPalette) ? draw->pPalette[768 + index] : 255;
                 output[x] = !color || alpha < 128
                                 ? 255
-                                : static_cast<uint8_t>((color[0] * 77 + color[1] * 150 + color[2] * 29) >> 8);
+                                : colorToGray(color[0], color[1], color[2], perceptual);
             }
             break;
         case PNG_PIXEL_GRAY_ALPHA:
@@ -338,7 +388,7 @@ void pngLineToGray(PNGDRAW* draw, uint8_t* output, int width, uint32_t transpare
         case PNG_PIXEL_TRUECOLOR_ALPHA:
             for (int x = 0; x < width; x++) {
                 const uint8_t* pixel = pixels + x * 4;
-                uint8_t gray = static_cast<uint8_t>((pixel[0] * 77 + pixel[1] * 150 + pixel[2] * 29) >> 8);
+                uint8_t gray = colorToGray(pixel[0], pixel[1], pixel[2], perceptual);
                 uint8_t alpha = pixel[3];
                 output[x] = static_cast<uint8_t>((gray * alpha + 255U * (255U - alpha)) / 255U);
             }
@@ -359,7 +409,7 @@ int pngDraw(PNGDRAW* draw) {
     }
 
     uint32_t transparent = context->decoder ? context->decoder->getTransparentColor() : 0;
-    pngLineToGray(draw, context->sourceLine, context->sourceWidth, transparent);
+    pngLineToGray(draw, context->sourceLine, context->sourceWidth, transparent, context->perceptual);
 
     if (context->rows) {
         if (draw->y >= 0 && draw->y < context->sourceHeight) {
@@ -389,7 +439,7 @@ int pngDraw(PNGDRAW* draw) {
 }
 
 bool decodeJpeg(const uint8_t* data, size_t size, uint8_t* gray, int targetWidth, int targetHeight,
-                EpubImageInfo& sourceInfo) {
+                EpubImageInfo& sourceInfo, bool perceptual) {
     std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
     if (!jpeg || jpeg->openRAM(const_cast<uint8_t*>(data), static_cast<int>(size), jpegDraw) != 1) return false;
 
@@ -420,7 +470,9 @@ bool decodeJpeg(const uint8_t* data, size_t size, uint8_t* gray, int targetWidth
         if (context.intermediate) memset(context.intermediate, 255, intermediateBytes);
     }
 
-    jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
+    // Colour output only goes through the full-size intermediate buffer.
+    context.rgb565 = perceptual && context.intermediate;
+    jpeg->setPixelType(context.rgb565 ? RGB565_LITTLE_ENDIAN : EIGHT_BIT_GRAYSCALE);
     jpeg->setUserPointer(&context);
     int result = jpeg->decode(0, 0, scale);
     jpeg->close();
@@ -433,7 +485,7 @@ bool decodeJpeg(const uint8_t* data, size_t size, uint8_t* gray, int targetWidth
 }
 
 bool decodePng(const uint8_t* data, size_t size, uint8_t* gray, int targetWidth, int targetHeight,
-               EpubImageInfo& sourceInfo) {
+               EpubImageInfo& sourceInfo, bool perceptual) {
     std::unique_ptr<PNG> png(new (std::nothrow) PNG());
     if (!png || png->openRAM(const_cast<uint8_t*>(data), static_cast<int>(size), pngDraw) != PNG_SUCCESS) return false;
 
@@ -461,6 +513,7 @@ bool decodePng(const uint8_t* data, size_t size, uint8_t* gray, int targetWidth,
 
     PngContext context;
     context.decoder = png.get();
+    context.perceptual = perceptual;
     context.gray = gray;
     context.sourceLine = sourceLine;
     context.sourceWidth = sourceInfo.width;
@@ -581,6 +634,46 @@ bool ditherAtkinson(const uint8_t* gray, int width, int height, EpubBitmap& bitm
     return true;
 }
 
+// Serpentine Floyd-Steinberg for full-screen covers. Unlike Atkinson it keeps
+// all of the error, so large smooth areas keep their tone instead of
+// collapsing to black or white; alternating direction avoids diagonal worms.
+bool ditherFloydSteinberg(const uint8_t* gray, int width, int height, EpubBitmap& bitmap) {
+    if (!bitmap.allocate(width, height)) return false;
+    size_t errorBytes = static_cast<size_t>(width + 2) * sizeof(int16_t);
+    int16_t* current = reinterpret_cast<int16_t*>(allocatePsram(errorBytes, true));
+    int16_t* next = reinterpret_cast<int16_t*>(allocatePsram(errorBytes, true));
+    if (!current || !next) {
+        free(current);
+        free(next);
+        return false;
+    }
+    for (int y = 0; y < height; y++) {
+        uint8_t* output = bitmap.pixels() + y * bitmap.stride();
+        const uint8_t* input = gray + y * width;
+        const bool leftToRight = (y & 1) == 0;
+        const int step = leftToRight ? 1 : -1;
+        for (int i = 0; i < width; i++) {
+            const int x = leftToRight ? i : width - 1 - i;
+            const int value = constrain(input[x] + current[x + 1] / 16, -64, 319);
+            const bool white = value >= 128;
+            const int error = value - (white ? 255 : 0);
+            current[x + 1 + step] += error * 7;
+            next[x + 1 - step] += error * 3;
+            next[x + 1] += error * 5;
+            next[x + 1 + step] += error;
+            if (!white) output[x >> 3] |= static_cast<uint8_t>(0x80 >> (x & 7));
+        }
+        int16_t* finished = current;
+        current = next;
+        next = finished;
+        memset(next, 0, errorBytes);
+        if ((y & 15) == 0) yield();
+    }
+    free(current);
+    free(next);
+    return true;
+}
+
 }  // namespace
 
 EpubBitmap::~EpubBitmap() { clear(); }
@@ -653,7 +746,13 @@ bool EpubImageDecoder::dimensions(const uint8_t* data, size_t size, EpubImageInf
     return info.width > 0 && info.height > 0;
 }
 
-bool EpubImageDecoder::decode(const uint8_t* data, size_t size, int maxWidth, int maxHeight, EpubBitmap& bitmap) {
+bool EpubImageDecoder::decode(const uint8_t* data, size_t size, int maxWidth, int maxHeight, EpubBitmap& bitmap,
+                              EpubImageQuality quality) {
+    const bool cover = quality == EpubImageQuality::Cover;
+    if (cover && jpegIsProgressive(data, size)) {
+        Serial.println("EpubImage: progressive JPEG cover not decoded (known JPEGDEC overrun)");
+        return false;
+    }
     EpubImageInfo source;
     if (!dimensions(data, size, source)) return false;
 
@@ -668,15 +767,16 @@ bool EpubImageDecoder::decode(const uint8_t* data, size_t size, int maxWidth, in
     memset(gray, 255, grayBytes);
 
     bool decoded = false;
-    if (isJpeg(data, size)) decoded = decodeJpeg(data, size, gray, targetWidth, targetHeight, source);
-    else if (isPng(data, size)) decoded = decodePng(data, size, gray, targetWidth, targetHeight, source);
+    if (isJpeg(data, size)) decoded = decodeJpeg(data, size, gray, targetWidth, targetHeight, source, cover);
+    else if (isPng(data, size)) decoded = decodePng(data, size, gray, targetWidth, targetHeight, source, cover);
 
     bool dithered = false;
     if (decoded) {
         autoLevels(gray, targetWidth, targetHeight);
         // Only images shrunk by more than 1.25x lose enough edge detail to need it.
         if (source.width * 4 > targetWidth * 5) sharpen(gray, targetWidth, targetHeight);
-        dithered = ditherAtkinson(gray, targetWidth, targetHeight, bitmap);
+        dithered = cover ? ditherFloydSteinberg(gray, targetWidth, targetHeight, bitmap)
+                         : ditherAtkinson(gray, targetWidth, targetHeight, bitmap);
     }
     free(gray);
     return dithered;

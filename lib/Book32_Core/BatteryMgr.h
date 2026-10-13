@@ -36,7 +36,12 @@ public:
     void loadSleepSettings();             // Load from EbookFS
     void resetIdleTimer();                // Call when user interacts
     unsigned long getLastActivityTime() const { return _lastActivityTime; }
-    void enterIdleSleep();                // Display message and sleep
+    void enterIdleSleep();                // Display sleep screen and sleep
+    // Draws the cover of the book being read as the sleep screen, with the
+    // sleep message under it. Returns false to fall back to the message-only
+    // screen (no book yet, no usable cover). Registered by the reader app.
+    using SleepCoverRenderer = bool (*)(const String& message);
+    void setSleepCoverRenderer(SleepCoverRenderer renderer) { _coverRenderer = renderer; }
     void setReaderActive(bool active);    // Enables reader-only idle CPU scaling
 
     // Status indicator on e-ink display (partial update)
@@ -78,6 +83,9 @@ private:
     // Idle sleep settings
     int _sleepTimeoutMinutes;          // 0 = disabled
     String _sleepMessage;
+    bool _sleepShowCover = true;       // sleep screen: book cover (default) or message
+    bool _lowBatterySleep = false;     // low-battery sleep always shows its warning
+    SleepCoverRenderer _coverRenderer = nullptr;
     unsigned long _lastActivityTime;   // Last user interaction
     bool _readerActive;
     bool _cpuReduced;

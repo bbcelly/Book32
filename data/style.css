@@ -28,7 +28,7 @@ body {
     font-size: 16px;
     line-height: 1.5;
 }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { color: inherit; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
 
@@ -102,11 +102,11 @@ h3 { margin: 0; }
 .inline-setting { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 17px 0; border-top: 1px solid var(--line); }
 .inline-setting label, .text-field > span { font-size: 14px; font-weight: 700; }
 .number-control { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-input[type="number"], input[type="text"], input[type="password"], .todo-edit-input { min-height: 43px; border: 1px solid var(--line); border-radius: 8px; outline: none; background: var(--surface-soft); color: var(--text); }
+input[type="number"], input[type="text"], input[type="password"], select, .todo-edit-input { min-height: 43px; border: 1px solid var(--line); border-radius: 8px; outline: none; background: var(--surface-soft); color: var(--text); }
 input[type="number"] { width: 76px; padding: 8px 10px; text-align: center; }
-input[type="text"], input[type="password"], .todo-edit-input { width: 100%; padding: 10px 12px; }
-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(63, 185, 150, .12); }
-.text-field { display: grid; gap: 8px; margin: 18px 0 4px; }.text-field input { max-width: 520px; }
+input[type="text"], input[type="password"], select, .todo-edit-input { width: 100%; padding: 10px 12px; }
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(63, 185, 150, .12); }
+.text-field { display: grid; gap: 8px; margin: 18px 0 4px; }.text-field input, .text-field select { max-width: 520px; }
 
 .action-row { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-top: 20px; }
 .btn { min-height: 43px; padding: 0 16px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 700; transition: background .16s, border-color .16s, transform .16s; }
