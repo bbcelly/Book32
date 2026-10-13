@@ -8,14 +8,23 @@ int main() {
     assert(strcmp(SLEEP_MESSAGE_DEFAULT,"Press BOOT to wake")==0);
     assert(sleepMessageNeedsMigration(1,"Press power to wake"));
     assert(sleepMessageNeedsMigration(2,"Press power to wake"));
+    assert(!sleepMessageNeedsMigration(3,"Press power to wake"));
+    assert(!sleepMessageNeedsMigration(2,"Press BOOT to wake"));
 #else
-    static_assert(SLEEP_CONFIG_VERSION == 2, "other board schema unchanged");
+#if defined(BOARD_SEEED_STICKY)
+    static_assert(SLEEP_CONFIG_VERSION == 2, "Sticky schema unchanged");
+#else
+    static_assert(SLEEP_CONFIG_VERSION == 3, "Book32 sleep on by default from v3");
+#endif
     assert(strcmp(SLEEP_MESSAGE_DEFAULT,"Press power to wake")==0);
     assert(!sleepMessageNeedsMigration(2,"Press power to wake"));
-#endif
     assert(!sleepMessageNeedsMigration(3,"Press power to wake"));
+    // No BOOT wake on these boards: the LILYGO default is always replaced.
+    assert(sleepMessageNeedsMigration(2,"Press BOOT to wake"));
+    assert(sleepMessageNeedsMigration(3,"Press BOOT to wake"));
+#endif
     assert(!sleepMessageNeedsMigration(2,"Good night!"));
-    assert(!sleepMessageNeedsMigration(2,"Press BOOT to wake"));
+    assert(!sleepMessageNeedsMigration(3,"Good night!"));
     assert(!sleepMessageNeedsMigration(2,nullptr));
-    puts("PASS: board-specific sleep default, legacy migration and custom-message preservation");
+    puts("PASS: board-specific sleep default, wrong-board message replaced, custom message preserved");
 }

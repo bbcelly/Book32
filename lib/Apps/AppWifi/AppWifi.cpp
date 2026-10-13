@@ -8,6 +8,7 @@
 #include "../../Book32_Core/FontMgr.h"
 #include "../../Book32_Core/Book32FS.h"
 #include "../../Book32_Core/SoundMgr.h"
+#include "../../Book32_Core/SleepDefaults.h"
 #include "../../Book32_Apps/icon_settings.h"
 #include "../../Book32_Web/WebMgr.h"
 #include <ArduinoJson.h>
@@ -158,6 +159,9 @@ void AppWifi::loadDeviceSettings() {
             if (!deserializeJson(doc, file)) {
                 _sleepTimeoutMinutes = doc["sleepTimeout"] | SLEEP_TIMEOUT_DEFAULT_MINUTES;
                 _sleepMessage = doc["sleepMessage"] | SLEEP_MESSAGE_DEFAULT;
+                if (sleepMessageNeedsMigration(doc["configVersion"] | 1, _sleepMessage.c_str())) {
+                    _sleepMessage = SLEEP_MESSAGE_DEFAULT;
+                }
                 _sleepShowCover = strcmp(doc["sleepScreen"] | "cover", "message") != 0;
             }
             file.close();

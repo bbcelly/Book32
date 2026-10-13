@@ -16,10 +16,11 @@ updates.
 
 ### LILYGO preview
 
-The browser installer provides **InkDeck 1.3.8** for all three targets. The
+The browser installer provides **InkDeck 1.3.9** for all three targets. The
 LILYGO H752-01 / Pro Lite build remains experimental; the older H752 pinout is
 not supported. The header shows only InkDeck and the release version, without
-development-build suffixes. See [release notes](docs/release-1.3.8.md).
+development-build suffixes. See [release notes](docs/release-1.3.9.md).
+1.3.9 fixes the Sticky and Book32 sleep screen saying "Press BOOT to wake".
 1.3.8 shows the cover of the book you are reading while a device sleeps
 (choose a message instead in Settings), and gives Book32 the same low-power
 sleep as the other devices, on by default after 10 minutes. 1.3.7 brought

@@ -11,6 +11,7 @@
 #include "../Book32_Core/AppMgr.h"
 #include "../Book32_Core/DisplayMgr.h"
 #include "../Book32_Core/SoundMgr.h"
+#include "../Book32_Core/SleepDefaults.h"
 #include "../../include/Config.h"
 #include "RomUpload.h"
 #include "LilygoControls.h"
@@ -879,7 +880,9 @@ void WebMgr::setupEndpoints() {
                 DynamicJsonDocument savedDoc(512);
                 if (!deserializeJson(savedDoc, file)) {
                     doc["sleepTimeout"] = savedDoc.containsKey("sleepTimeout") ? savedDoc["sleepTimeout"].as<int>() : SLEEP_TIMEOUT_DEFAULT_MINUTES;
-                    doc["sleepMessage"] = savedDoc["sleepMessage"] | SLEEP_MESSAGE_DEFAULT;
+                    const char* savedMessage = savedDoc["sleepMessage"] | SLEEP_MESSAGE_DEFAULT;
+                    doc["sleepMessage"] = sleepMessageNeedsMigration(savedDoc["configVersion"] | 1, savedMessage)
+                                               ? SLEEP_MESSAGE_DEFAULT : savedMessage;
                     doc["sleepScreen"] = savedDoc["sleepScreen"] | "cover";
                 } else {
                     doc["sleepTimeout"] = SLEEP_TIMEOUT_DEFAULT_MINUTES;

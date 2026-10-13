@@ -384,9 +384,8 @@ void BatteryMgr::loadSleepSettings() {
                 int configVersion = doc["configVersion"] | 1;
                 _sleepTimeoutMinutes = doc["sleepTimeout"] | SLEEP_TIMEOUT_DEFAULT_MINUTES;
                 _sleepMessage = doc["sleepMessage"] | SLEEP_MESSAGE_DEFAULT;
-                if (sleepMessageNeedsMigration(configVersion, _sleepMessage.c_str())) {
-                    _sleepMessage = SLEEP_MESSAGE_DEFAULT;
-                }
+                const bool messageMigrated = sleepMessageNeedsMigration(configVersion, _sleepMessage.c_str());
+                if (messageMigrated) _sleepMessage = SLEEP_MESSAGE_DEFAULT;
                 _sleepShowCover = strcmp(doc["sleepScreen"] | "cover", "message") != 0;
 #if !defined(BOARD_LILYGO_T5S3_PRO)
                 // Sticky (v2) and Book32 (v3) once stored an implicit 0 because
@@ -396,7 +395,7 @@ void BatteryMgr::loadSleepSettings() {
                     _sleepTimeoutMinutes = SLEEP_TIMEOUT_DEFAULT_MINUTES;
                 }
 #endif
-                saveMigratedSettings = configVersion < SLEEP_CONFIG_VERSION;
+                saveMigratedSettings = configVersion < SLEEP_CONFIG_VERSION || messageMigrated;
             }
             file.close();
         }
