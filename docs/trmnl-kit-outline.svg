@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" fill="none" stroke="#3fb996" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <title>Book32 with a wide left-hand grip and single button</title>
+  <rect x="142" y="14" width="196" height="250" rx="6"/>
+  <rect x="184" y="24" width="143" height="230" rx="2" stroke-width="2" opacity=".65"/>
+  <rect x="152" y="118" width="22" height="44" rx="2" stroke-width="2.5"/>
+  <g stroke-width="2" opacity=".55">
+    <path d="M201 61h76m-76 15h54m-54 27h109m-109 15h109m-109 15h82m-82 28h109m-109 15h109m-109 15h69"/>
+    <path d="M248 235h16"/>
+  </g>
+</svg>
