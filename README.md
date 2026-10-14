@@ -1,89 +1,113 @@
 # InkDeck
 
-InkDeck is a custom E-Ink application OS for three ESP32-S3 targets: the 7.5-inch
-Book32, the 3.97-inch Seeed Studio Sticky, and the experimental LILYGO T5 S3 Pro
-H752-01 / Pro Lite. It includes an EPUB reader, a Todo app, a
-Klipper printer monitor, and a local web interface for books, settings, and OTA
-updates.
+InkDeck is firmware for ESP32-S3 e-paper devices. It turns them into an
+eReader with a few everyday apps, managed from a web page on your local
+network.
 
-## Hardware
+Install it from your browser with the
+**[InkDeck Browser Installer](https://rolohaun.github.io/Book32/)**.
 
-| Target | MCU / flash | Display | Input | Ebook storage |
-| --- | --- | --- | --- | --- |
-| Book32 | XIAO ESP32-S3, 16 MB | 7.5 inch, 800 x 480 | One button (Bluetooth LE gamepad for menus) | 10 MB internal LittleFS |
-| Seeed Studio Sticky | ESP32-S3, 32 MB | 3.97 inch, 800 x 480 | GT911 touch + three buttons + buzzer | MicroSD, with 23 MB internal fallback |
-| LILYGO T5 S3 Pro H752-01 / Pro Lite (experimental) | ESP32-S3, 16 MB | 4.7 inch, 960 x 540, parallel | GT911 touch + BOOT back/sleep | MicroSD, with internal fallback |
+## Supported devices
 
-### LILYGO preview
+| Device | Display | Controls | Book storage |
+| --- | --- | --- | --- |
+| Book32 (DIY build) | 7.5 inch, 800 × 480 | One button | 10 MB internal |
+| Seeed Studio Sticky | 3.97 inch, 800 × 480 | Touch screen and three buttons | MicroSD, or 23 MB internal without a card |
+| LILYGO T5 E-Paper S3 Pro H752-01 / Pro Lite (experimental) | 4.7 inch, 960 × 540, frontlight | Touch screen and buttons | MicroSD, or internal without a card |
 
-The browser installer provides **InkDeck 1.4.1** for all three targets. The
-LILYGO H752-01 / Pro Lite build remains experimental; the older H752 pinout is
-not supported. The header shows only InkDeck and the release version, without
-development-build suffixes. See [release notes](docs/release-1.4.1.md).
-1.4.1 removes Inkade from Book32 again (its 7.5" panel could not show games
-without heavy ghosting) and fixes the Inkade icon's corners on the Sticky and
-LILYGO. 1.4.0 adds Bluetooth gamepad support to all three devices;
-shows the sleep cover in true grayscale on every device; renames Ink Boy to
-Inkade; and makes the Sticky's game video a port of InkBoy. 1.3.9 fixes the Sticky and Book32 sleep screen saying "Press BOOT to wake".
-1.3.8 shows the cover of the book you are reading while a device sleeps
-(choose a message instead in Settings), and gives Book32 the same low-power
-sleep as the other devices, on by default after 10 minutes. 1.3.7 brought
-Inkade (Game Boy / Game Boy Color) to the Seeed Studio Sticky with a fast
-per-pixel video driver, and fixed colour games losing their background
-after resuming a save. 1.3.6 fixed a reboot after leaving the Klipper app.
-1.3.5 made the Klipper app reliably find printers on all three devices, rendered
-sharper book covers (larger on Book32) and opens the eReader without re-decoding
-covers. 1.3.4 made Book32 page turns about a third faster and its full refreshes
-more than twice as fast.
+The LILYGO build supports the H752-01 / Pro Lite revision only, not the older
+H752 board.
 
-The LILYGO build includes **NES (Nofrendo)** and **Game Boy / Game Boy Color
-(CrankBoy)** in Inkade. Its library shows Game Boy and NES tabs only for
-detected games, then launches the appropriate core. Web uploads accept `.gb`,
-`.gbc` and `.nes` into `/roms` on MicroSD. The Sticky shows Game Boy / Game Boy Color only;
-Book32 does not expose this feature. NES now preserves its native 256×240 image at exact 2× scaling
-(512×480), without the old 160×120 intermediate image. No games or BIOS files
-are bundled.
+## Features
 
-### Inkade on the Seeed Studio Sticky
+- **eReader** for EPUB books, with illustrations, cover thumbnails and saved
+  reading position.
+- **Inkade** game player (Sticky and LILYGO): Game Boy and Game Boy Color on
+  both, plus NES on the LILYGO. No games are included.
+- **Klipper monitor** for 3D printers on your network.
+- **Todo list.**
+- **Web interface** for uploading books and games, changing settings and
+  updating the firmware.
+- **Sleep screen** showing the cover of the book you are reading in grayscale,
+  or a message of your choice.
+- **Bluetooth LE gamepads** for menus, the eReader and Inkade.
+- **Updates over Wi-Fi** from the releases on this repository.
 
-The Sticky's fast video is a port of [InkBoy](https://github.com/kuslota/InkBoy)
-by kuslota, with InkBoy's algorithms and defaults: **Fast grayscale** (per-
-transition doses, pair hold mode, history corrections) or **Fast dithered**
-(a fixed 4x4 Bayer pattern), per-pixel drive on a 33.3 ms image clock, and a
-transition test. Open **Display >** in the Inkade library for the settings;
-InkBoy presets work as they are. See [Inkade on the Sticky](docs/inkade-sticky.md).
-The fast drive is experimental; custom waveforms may cause image retention.
+## Installing
 
-Genesis support has been removed in 1.3.2 because performance did not meet
-the intended experience. Existing Genesis ROMs and saves are left untouched
-on SD, but are no longer listed or accepted for upload. GB/GBC and NES saves
-are unchanged. InkDeck's project license remains AGPLv3-or-later; see
-[licensing](LICENSE.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+1. Open the [InkDeck Browser Installer](https://rolohaun.github.io/Book32/) in
+   desktop Chrome or Edge.
+2. Choose your device.
+3. Connect it with a USB cable that carries data, and follow the steps.
 
-On the tested LILYGO, NES emulation runs at about 60 FPS; measured display
-presentation varies around 51–60 FPS with an average near 56 FPS. These are
-different measurements, not a guarantee for every game. GB display scans have
-reached about 59 Hz. E-paper
-ghosting remains possible. Tap the game screen for a manual cleaning refresh.
+Updating keeps your Wi-Fi settings, books and reading progress. The installer
+never formats the MicroSD card or Book32's internal book storage. If it offers
+an **Erase device** option, leave that unchecked on a device that has books on
+it.
+
+## First start
+
+**Sticky and LILYGO:** tap the **Wi-Fi** icon, pick your network, type its
+password on the on-screen keyboard and tap **Connect**.
+
+**Book32:** connect a phone or computer to the `InkDeck-Setup` Wi-Fi network.
+If the setup page does not open on its own, browse to `192.168.4.1`. Choose your
+network and enter its password.
+
+Once connected, the device shows its IP address on the main menu. Open
+`http://<that address>/` in a browser to upload books, add games and change
+settings.
 
 ## Controls
 
-Original Book32:
+**Book32**
 
-- Click: move to the next item or page.
-- Long press: select, open, or go back depending on the app.
+- Press the button to move to the next item or page.
+- Hold it to open, select or go back, depending on the screen.
 
-Seeed Studio Sticky:
+**Seeed Studio Sticky**
 
-- Tap a main-menu icon to open it and tap a library book to start reading.
-- Tap the invisible left or right third of a reading page to turn backward or forward.
-- Up/down buttons move backward/forward; the power/OK button selects.
+- Tap an icon or a book to open it.
+- While reading, tap the left or right third of the page to turn back or
+  forward.
+- The up and down buttons move back and forward; the power button selects.
 
-## Wiring
+**LILYGO**
 
-| E-Ink Pin | Function | XIAO ESP32-S3 Pin |
+- Tap an icon or a book to open it. While reading, tap the left or right third
+  of the page to turn back or forward.
+- The BOOT button goes back. To sleep, hold it for 2 seconds and release; press
+  it again to wake.
+- The front and side buttons switch the frontlight on and off. Either can be
+  set to Home or Back in Settings.
+
+**Bluetooth gamepad (all devices)**
+
+Pair a Bluetooth LE gamepad under **Settings** on the device or in the web
+interface. Put the gamepad in its BLE pairing mode first. Gamepads that only
+use Classic Bluetooth cannot connect, because the ESP32-S3 does not support
+it.
+
+## Games (Inkade)
+
+Upload `.gb` and `.gbc` games (and `.nes` on the LILYGO) from the web
+interface, or copy them to the `/roms` folder on the MicroSD card. Games need a
+MicroSD card. They save automatically when you leave them, and you can also use
+save slots.
+
+On the Sticky, Inkade's fast video is a port of
+[InkBoy](https://github.com/kuslota/InkBoy) by kuslota, with its settings and
+presets; see [Inkade on the Sticky](docs/inkade-sticky.md). E-paper games can
+leave faint ghost images; tap the game screen to clean them up.
+
+## Building a Book32
+
+Book32 is a Seeed Studio XIAO ESP32-S3 (16 MB flash, 8 MB PSRAM) connected to
+a 7.5-inch 800 × 480 e-paper panel (GD7965 controller).
+
+| E-paper pin | Function | XIAO ESP32-S3 pin |
 | --- | --- | --- |
-| VCC | 3.3V | 3V3 |
+| VCC | 3.3 V | 3V3 |
 | GND | Ground | GND |
 | DIN | MOSI | GPIO 9 |
 | CLK | SCK | GPIO 7 |
@@ -92,201 +116,21 @@ Seeed Studio Sticky:
 | RST | Reset | GPIO 38 |
 | BUSY | Busy | GPIO 4 |
 
-Button:
+- **Button:** GPIO 5 to GND.
+- **Battery sense:** voltage on GPIO 1; the measurement switch on GPIO 6
+  (active high).
 
-- Signal: GPIO 5
-- Other side: GND
+## Releases
 
-Battery sense:
+Every release, with notes and firmware files, is on the
+[releases page](https://github.com/rolohaun/Book32/releases). Devices update
+from the latest release when you start an update from the web interface or the
+device menu.
 
-- Voltage ADC: GPIO 1
-- Measurement switch: GPIO 6, active high
+## License
 
-The Sticky is a complete device and does not need external display wiring. Its
-board profile uses E-Ink SPI on GPIO 13/14/15/16/17/18 (enable GPIO 47), GT911
-touch on GPIO 3/2/21/41 (enable GPIO 42), MicroSD CS on GPIO 8, and its PWM
-buzzer on GPIO 48. InkDeck uses the buzzer only for main-menu touchscreen taps;
-the eReader remains silent.
-
-The Sticky build uses DIO flash with octal PSRAM. Do not change its flash mode
-to QIO: production Sticky hardware can watchdog-reset in the ESP32-S3 ROM before
-the second-stage bootloader finishes loading. Serial diagnostics use the
-device's CH343 UART bridge at 115200 baud.
-
-## Install From A Browser
-
-The quickest installation method is the [InkDeck Browser Installer](https://rolohaun.github.io/Book32/).
-It works in desktop Chrome or Edge with a data-capable USB cable and does not
-require PlatformIO or a local development environment.
-
-- Updating InkDeck flashes the firmware and web interface while
-  preserving Wi-Fi settings, ebooks, and reading progress.
-- **Set up new hardware** installs the bootloader, hardware-specific partition
-  table, firmware, and web interface.
-
-Choose either the **Book32** or **Seeed Studio Sticky** hardware card before connecting USB.
-
-The installer does not write to the dedicated ebook partition. If ESP Web Tools
-offers an **Erase device** option, leave it unchecked on a device that contains
-ebooks.
-
-## Install PlatformIO
-
-The easiest path is Visual Studio Code plus the PlatformIO extension.
-
-1. Install Visual Studio Code.
-2. Install the PlatformIO IDE extension.
-3. Install Git if it is not already installed.
-4. Clone this repo:
-
-```powershell
-git clone https://github.com/rolohaun/Book32.git
-cd Book32
-```
-
-You can also use PlatformIO from the command line:
-
-```powershell
-python -m pip install platformio
-```
-
-## Flash From PlatformIO
-
-Choose the matching environment:
-
-```powershell
-# Original 7.5-inch Book32
-python -m platformio run -e seeed_xiao_esp32s3 --target upload
-
-# Seeed Studio Sticky
-python -m platformio run -e seeed_reterminal_sticky --target upload
-```
-
-Then flash the matching web interface filesystem:
-
-```powershell
-python -m platformio run -e seeed_xiao_esp32s3 --target uploadfs
-# or
-python -m platformio run -e seeed_reterminal_sticky --target uploadfs
-```
-
-The ebook storage partition is separate. These commands update firmware and the
-web UI, but they do not erase uploaded ebooks.
-
-On a brand-new board, the firmware creates the internal ebook filesystem on
-first boot. Sticky mounts a MicroSD card at `/ebooks` when present and otherwise
-uses its internal fallback partition.
-
-To watch boot logs:
-
-```powershell
-python -m platformio device monitor
-```
-
-If upload fails because the board is not in bootloader mode, hold BOOT, tap
-RESET, then run the upload command again.
-
-## First Boot
-
-Seeed Studio Sticky:
-
-1. Power on the Sticky and tap the **Wi-Fi** icon.
-2. Tap a network, enter its password on the touch keyboard, and tap **Connect**.
-3. The credentials are saved and the assigned IP address appears on the main menu.
-
-Original Book32:
-
-1. Power on Book32 and connect to the `InkDeck-Setup` access point if WiFi is not configured.
-2. Open `192.168.4.1` if the setup portal does not open automatically.
-3. Choose your WiFi network and enter the password.
-4. After connection, InkDeck shows its IP address on the main menu.
-
-Open `http://<INKDECK_IP>/` in a browser to manage books and settings after either
-device joins the network.
-
-## OTA Updates
-
-InkDeck uses the public GitHub release feed:
-
-```text
-https://github.com/rolohaun/Book32/releases/latest
-```
-
-No GitHub personal access token is required. Releases should include:
-
-- `firmware.bin`
-- `littlefs.bin`
-- `book32-sticky-firmware.bin`
-- `book32-sticky-littlefs.bin`
-
-The device downloads those public release assets directly when you run an update
-from the web interface or the device menu.
-
-## Useful PlatformIO Commands
-
-Build both firmware targets:
-
-```powershell
-python -m platformio run -e seeed_xiao_esp32s3
-python -m platformio run -e seeed_reterminal_sticky
-```
-
-Build the web UI filesystem image:
-
-```powershell
-python -m platformio run --target buildfs
-```
-
-Flash firmware:
-
-```powershell
-python -m platformio run --target upload
-```
-
-Flash web UI:
-
-```powershell
-python -m platformio run --target uploadfs
-```
-
-Open serial monitor:
-
-```powershell
-python -m platformio device monitor
-```
-
-## Features
-
-- Polished boot screen with E-Ink progress feedback
-- EPUB reader with streamed chapter parsing, Unicode-stable progress, and boot resume
-- PSRAM-backed JPEG/PNG illustrations with high-quality monochrome dithering
-- EPUB cover thumbnails decoded on demand without writing extracted cover files
-- Bounded 16 KB page index for fast backward navigation without unbounded cache growth
-- Reader-only idle CPU scaling for improved battery life
-- Library menu optimized for E-Ink
-- Local web interface for uploading and deleting books
-- Todo app
-- Klipper printer monitor
-- Battery indicator and charging status
-- Public GitHub OTA firmware and web UI updates
-
-The EPUB image pipeline is inspired by the MIT-licensed CrossPoint Reader. It
-scales images before applying Atkinson-style 1-bit dithering, preserving useful
-detail on the E-Ink panel while keeping temporary working data in PSRAM.
-
-## Partition Notes
-
-InkDeck uses a hardware-specific custom partition table. Ebook storage is mounted
-separately from firmware and the web UI, so normal firmware and `uploadfs`
-updates do not overwrite it. Sticky uses `partitions_32MB_sticky.csv`; its SD
-card and internal fallback share the same `/ebooks` path.
-
-Fresh hardware setup uses three pieces:
-
-- `python -m platformio run --target upload` flashes the bootloader, firmware,
-  and the custom partition table.
-- `python -m platformio run --target uploadfs` flashes the 1 MB LittleFS web UI
-  partition named `spiffs`.
-- The `ebooks` partition (10 MB original, 23 MB Sticky fallback) is not flashed
-  by PlatformIO. InkDeck formats it automatically the first time it sees that
-  partition is blank.
+InkDeck is licensed under the GNU Affero General Public License, version 3 or
+later; see [LICENSE.md](LICENSE.md) and [COPYING](COPYING). It includes
+third-party code under its own licenses, listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Each release includes the
+complete source code and license notices.
