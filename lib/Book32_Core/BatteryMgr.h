@@ -42,6 +42,8 @@ public:
     // screen (no book yet, no usable cover). Registered by the reader app.
     using SleepCoverRenderer = bool (*)(const String& message);
     void setSleepCoverRenderer(SleepCoverRenderer renderer) { _coverRenderer = renderer; }
+    // Draws the sleep cover without sleeping (serial "cover", for tuning).
+    bool previewSleepCover() { return _coverRenderer && _coverRenderer("Press BOOT to wake"); }
     void setReaderActive(bool active);    // Enables reader-only idle CPU scaling
 
     // Status indicator on e-ink display (partial update)
@@ -86,7 +88,7 @@ private:
     bool _sleepShowCover = true;       // sleep screen: book cover (default) or message
     bool _lowBatterySleep = false;     // low-battery sleep always shows its warning
     SleepCoverRenderer _coverRenderer = nullptr;
-    unsigned long _lastActivityTime;   // Last user interaction
+    volatile unsigned long _lastActivityTime;   // Last user interaction (any task)
     bool _readerActive;
     bool _cpuReduced;
     bool _sleeping;

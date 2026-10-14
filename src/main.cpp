@@ -8,6 +8,7 @@
 
 #include "DisplayMgr.h"
 #include "InputMgr.h"
+#include "GamepadMgr.h"
 #include "AppMgr.h"
 #include "WebMgr.h"
 #include "GitHubMgr.h"
@@ -52,7 +53,7 @@ static void networkStartupWork(void* parameter) {
         }
 #endif
         App* current = AppMgr::getInstance().getCurrentApp();
-        if (current && (strcmp(current->getName(), "Settings") == 0 || strcmp(current->getName(), "Ink Boy") == 0)) {
+        if (current && (strcmp(current->getName(), "Settings") == 0 || strcmp(current->getName(), "Inkade") == 0)) {
             // The interactive app now owns the radio and scan lifecycle.
             gNetworkStartupInProgress = false;
             return;
@@ -88,14 +89,14 @@ static void networkStartupWork(void* parameter) {
     Serial.println(WiFi.localIP());
 
     App* currentApp = AppMgr::getInstance().getCurrentApp();
-    if (currentApp && (strcmp(currentApp->getName(), "eReader") == 0 || strcmp(currentApp->getName(), "Ink Boy") == 0)) {
+    if (currentApp && (strcmp(currentApp->getName(), "eReader") == 0 || strcmp(currentApp->getName(), "Inkade") == 0)) {
         Serial.println("Network startup skipped services; eReader is active");
-        if (strcmp(currentApp->getName(),"Ink Boy")==0) {
+        if (strcmp(currentApp->getName(),"Inkade")==0) {
             gNetworkStartupInProgress=false;
-            return; // Ink Boy is the sole radio-shutdown owner.
+            return; // Inkade is the sole radio-shutdown owner.
         }
 #if BOOK32_HAS_INKBOY
-        // Ink Boy owns shutdown and waits for this lease plus active HTTPS.
+        // Inkade owns shutdown and waits for this lease plus active HTTPS.
         if (NetworkWork::gate().paused()) { gNetworkStartupInProgress=false; return; }
 #endif
         WebMgr::getInstance().stop();
@@ -231,6 +232,8 @@ void setup() {
 
     // 4. Input Init
     inputMgr.init();
+    // Bluetooth LE gamepad: reconnects a saved pad in the background.
+    GamepadMgr::getInstance().begin();
 
     // 5. App Init
     appMgr.registerApp(new AppMainMenu());

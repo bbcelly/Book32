@@ -148,3 +148,4 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px r
 .rom-actions { display: flex; align-items: center; gap: 14px; margin-left: auto; }
 .rom-actions small { flex-shrink: 0; color: var(--muted); white-space: nowrap; }
 .rom-delete:disabled, #rom-upload-button:disabled, #rom-refresh-button:disabled { opacity: .5; cursor: wait; transform: none; }
+.gamepad-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }.gamepad-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line, #ddd); border-radius: 10px; font-size: 14px; overflow-wrap: anywhere; }

@@ -1,17 +1,21 @@
 #pragma once
 #include "Config.h"
-#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
 #include "BaseApp.h"
+#include "InputMgr.h"
 #include "GameFrameTiming.h"
 #include "RomFormat.h"
 #include <atomic>
 #include <vector>
 #include <FS.h>
 #include <freertos/semphr.h>
+#if INKADE_INKBOY_VIDEO
+#include "InkadeSettings.h"
+#endif
 
 class AppPaperboy : public App {
 public:
-    const char* getName() override { return "Ink Boy"; }
+    const char* getName() override { return "Inkade"; }
     void start() override;
     void stop() override;
     void update() override;
@@ -79,5 +83,56 @@ private:
     void resetFrameTiming();
     void requestNextFrame(bool maintenance);
     const char* modeLabel() const { return _videoEnabled ? "Contrast" : "safe fallback"; }
+    uint8_t whiteFill() const;
+    bool _padHomeHeld = false;
+    unsigned _cursor = 0;        // library row chosen with keys / gamepad
+#if defined(BOARD_SEEED_XIAO_ESP32S3)
+    bool _cursorShown = true;    // Book32: keys / gamepad are the only input
+#else
+    bool _cursorShown = false;   // shown after the first key press
+#endif
+    void keyAction(InputAction a);
+    // Scan pacing: a fixed schedule of 1/fps slots, or (cap 0) at most one
+    // scan per 16.7 ms as fast as the panel goes.
+    void waitForScanSlot(bool clean);
+    void scanStarted(bool clean);
+    // On-screen FPS counter (Sticky): distinct frames shown per second.
+    std::atomic<uint8_t> _fpsShown{0};
+    unsigned _fpsCount = 0;
+    unsigned long _fpsAt = 0;
+    void countFps(bool fresh);
+#if INKADE_INKBOY_VIDEO
+    // Display settings and transition test (Sticky). See AppPaperboyDisplay.cpp.
+    enum Screen : uint8_t { SCREEN_LIBRARY, SCREEN_SETTINGS, SCREEN_TEST };
+    enum SettingsPage : uint8_t { PAGE_MAIN, PAGE_DOSES, PAGE_HOLDS, PAGE_ROUTES, PAGE_PRESETS };
+    Screen _screen = SCREEN_LIBRARY;
+    SettingsPage _settingsPage = PAGE_MAIN;
+    InkadeSettings::Active _display;
+    std::vector<InkadeSettings::PresetFile> _presets;
+    String _settingsMessage;
+    bool _testPaused = false;
+    int64_t _testStarted = 0, _testFrozen = 0;  // esp_timer microseconds
+    std::vector<int> settingsRows() const;
+    String rowLabel(int id) const;
+    String rowValue(int id) const;
+    bool rowIsAction(int id) const;
+    void changeRow(int id, int delta);
+    void settingsChanged(bool modeSetting);
+    void openSettings();
+    void paintSettings();
+    void settingsTap(uint16_t x, uint16_t y);
+    void startTest();
+    void stopTest();
+    void paintTest();
+    void testTap(uint16_t x, uint16_t y);
+    void drawTest();
+    // InkBoy's display loop (game_session_play): 33.3 ms image clock, scans
+    // only for a new image or remaining drive, analog off after 750 ms idle.
+    void drawStickyGame();
+    bool latestImage();
+    int64_t _nextImage = 0, _lastChange = 0;
+    bool _analogOn = false;
+    void serialSetting(const char* line);
+#endif
 };
 #endif

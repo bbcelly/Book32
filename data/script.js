@@ -127,7 +127,7 @@ async function fetchStatus() {
         romMaxBytes = Number(data.romMaxBytes) || 0;
         document.getElementById('games-nav').classList.toggle('hidden', !romUploadsSupported);
         document.getElementById('games').classList.toggle('hidden', !romUploadsSupported);
-        document.getElementById('rom-limit').textContent = romUploadsSupported ? `Maximum ROM size: ${formatStorage(romMaxBytes)}. MicroSD required.` : '';
+        document.getElementById('rom-limit').textContent = romUploadsSupported ? `Maximum ROM size: ${formatStorage(romMaxBytes)}. ${data.ebookStorage === 'internal' ? 'Stored in internal storage.' : 'MicroSD required.'}` : '';
         document.getElementById('battery-val').innerText = data.battery + '%' + (data.charging ? ' (Charging)' : '');
         document.getElementById('uptime-val').innerText = data.uptime;
 
@@ -321,7 +321,7 @@ function uploadRom() {
     xhr.onload = () => {
         let data;
         try { data = JSON.parse(xhr.responseText); } catch (_) { finish('Unexpected response; check the ROM list before retrying.', false); return; }
-        if (xhr.status === 201) finish(`Saved to ${data.path}. Open Ink Boy on your LILYGO to play.`, true);
+        if (xhr.status === 201) finish(`Saved to ${data.path}. Open Inkade on your device to play.`, true);
         else finish(data.error || `Upload failed (${xhr.status}).`, false);
     };
     xhr.onerror = () => finish('Connection lost. Return InkDeck to its home screen and check the ROM list before retrying.', false);
@@ -460,6 +460,7 @@ getReaderSettings();
 getReaderProgress();
 getKlipperSettings();
 getSleepSettings();
+getGamepad();
 getDisplaySettings();
 
 function setRadioValue(name, value) {
@@ -638,6 +639,70 @@ function saveKlipperSettings() {
             statusDiv.textContent = "Connection error.";
             statusDiv.style.color = "var(--danger)";
         });
+}
+
+// === Bluetooth gamepad ===
+let gamepadPoll = null;
+function getGamepad() {
+    fetch('/api/gamepad')
+        .then(response => response.json())
+        .then(renderGamepad)
+        .catch(error => console.error('Error loading gamepad status:', error));
+}
+
+function renderGamepad(data) {
+    const status = document.getElementById('gamepad-status');
+    if (!status) return;
+    const states = {off: 'Bluetooth off', idle: 'Not connected', scanning: 'Scanning...', connecting: 'Connecting...', connected: 'Connected'};
+    let text = states[data.state] || data.state;
+    if (data.address) {
+        text = (data.name || data.address) + ' - ' + text;
+        if (data.state === 'connected' && data.battery) text += ' (battery ' + data.battery + '%)';
+    } else if (data.state !== 'scanning') {
+        text = 'No gamepad paired.';
+    }
+    status.textContent = text;
+    document.getElementById('gamepad-forget').hidden = !data.address;
+    const list = document.getElementById('gamepad-found');
+    list.innerHTML = '';
+    (data.found || []).filter(f => f.gamepad || f.name).sort((a, b) => (b.gamepad - a.gamepad) || (b.rssi - a.rssi)).forEach(f => {
+        const item = document.createElement('li');
+        const label = document.createElement('span');
+        label.textContent = (f.name || 'Unnamed device') + (f.gamepad ? '' : ' (not a HID device)') + '  ' + f.address;
+        const button = document.createElement('button');
+        button.className = 'btn';
+        button.textContent = f.address === data.address ? 'Paired' : 'Pair';
+        button.disabled = f.address === data.address;
+        button.onclick = () => pairGamepad(f);
+        item.append(label, button);
+        list.append(item);
+    });
+    if (data.state === 'scanning' || data.state === 'connecting') {
+        clearTimeout(gamepadPoll);
+        gamepadPoll = setTimeout(getGamepad, 1500);
+    }
+}
+
+function scanGamepads() {
+    document.getElementById('gamepad-status').textContent = 'Scanning...';
+    fetch('/api/gamepad/scan', {method: 'POST'})
+        .then(() => { clearTimeout(gamepadPoll); gamepadPoll = setTimeout(getGamepad, 1500); })
+        .catch(() => { document.getElementById('gamepad-status').textContent = 'Connection error.'; });
+}
+
+function pairGamepad(device) {
+    document.getElementById('gamepad-status').textContent = 'Pairing with ' + (device.name || device.address) + '...';
+    fetch('/api/gamepad/pair', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({address: device.address, type: device.type, name: device.name})
+    }).then(() => { clearTimeout(gamepadPoll); gamepadPoll = setTimeout(getGamepad, 2000); })
+      .catch(() => { document.getElementById('gamepad-status').textContent = 'Connection error.'; });
+}
+
+function forgetGamepad() {
+    if (!confirm('Forget this gamepad? You can pair it again later.')) return;
+    fetch('/api/gamepad/forget', {method: 'POST'}).then(() => setTimeout(getGamepad, 500));
 }
 
 // === Sleep Settings ===

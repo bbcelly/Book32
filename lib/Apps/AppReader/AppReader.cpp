@@ -610,22 +610,47 @@ bool AppReader::drawSleepCover(const String& message) {
 
     const int coverX = (screenW - cover.width) / 2;
     const int coverY = margin + (maxH - cover.height) / 2;
-    display.setFullWindow();
-    display.firstPage();
-    do {
+    // Every board shows the cover in true gray, each display mapping it to
+    // its own tones. The Sticky and Book32 pulse it in over the white area
+    // after the message is up; the LILYGO composes one 16-level frame.
+    auto drawMessage = [&]() {
+        if (!messageStrip) return;
+        display.setFont(&FreeSans12pt7b);
+        display.setTextColor(GxEPD_BLACK);
+        int16_t bx, by;
+        uint16_t bw, bh;
+        display.getTextBounds(message.c_str(), 0, 0, &bx, &by, &bw, &bh);
+        display.setCursor((screenW - bw) / 2 - bx, screenH - margin - messageStrip / 2 + bh / 2 - (bh + by));
+        display.print(message);
+    };
+    bool grayShown = false;
+    if (cover.gray()) {
+#if defined(BOARD_LILYGO_T5S3_PRO)
+        display.setFullWindow();
         display.fillScreen(GxEPD_WHITE);
-        cover.draw(display, coverX, coverY);
-        if (messageStrip) {
-            display.setFont(&FreeSans12pt7b);
-            display.setTextColor(GxEPD_BLACK);
-            int16_t bx, by;
-            uint16_t bw, bh;
-            display.getTextBounds(message.c_str(), 0, 0, &bx, &by, &bw, &bh);
-            display.setCursor((screenW - bw) / 2 - bx, screenH - margin - messageStrip / 2 + bh / 2 - (bh + by));
-            display.print(message);
-        }
-    } while (display.nextPage());
-    Serial.printf("Sleep cover: %s (%dx%d)\n", lastBook.c_str(), cover.width, cover.height);
+        drawMessage();
+#else
+        display.setFullWindow();
+        display.firstPage();
+        do {
+            display.fillScreen(GxEPD_WHITE);
+            drawMessage();
+        } while (display.nextPage());
+#endif
+        grayShown = display.drawGrayCover(cover.gray(), coverX, coverY, cover.width, cover.height);
+    }
+    if (!grayShown) {
+        // The dithered cover.
+        display.setFullWindow();
+        display.firstPage();
+        do {
+            display.fillScreen(GxEPD_WHITE);
+            cover.draw(display, coverX, coverY);
+            drawMessage();
+        } while (display.nextPage());
+    }
+    Serial.printf("Sleep cover: %s (%dx%d%s)\n", lastBook.c_str(), cover.width, cover.height,
+                  grayShown ? ", grayscale" : "");
     return true;
 }
 

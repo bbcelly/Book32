@@ -106,7 +106,7 @@ const call = source => vm.runInContext(source, context);
   first.status = 201; first.responseText = '{"path":"/roms/test.GBC"}'; first.onload();
   assert.equal(el('rom-upload-button').disabled, false);
   assert.match(el('rom-status').textContent, /Saved to \/roms\/test.GBC/);
-  assert.match(el('rom-status').textContent, /Open Ink Boy/);
+  assert.match(el('rom-status').textContent, /Open Inkade/);
   call('uploadRom()'); lastXhr.status = 409; lastXhr.responseText = '{"error":"Already exists"}'; lastXhr.onload();
   assert.equal(el('rom-status').textContent, 'Already exists');
   for (const event of ['onerror', 'ontimeout', 'onabort']) {

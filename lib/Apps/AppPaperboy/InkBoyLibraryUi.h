@@ -2,15 +2,18 @@
 #include <Adafruit_GFX.h>
 #include <stdio.h>
 #include <string.h>
+#include "Config.h"
 #include "RomFormat.h"
 namespace InkBoyLibraryUi {
-#if defined(BOARD_SEEED_STICKY)
+#if INKADE_INKBOY_VIDEO
 // 480x800 portrait.
 constexpr int CONTENT_W=440, ROWS=4, ROW_Y=250, ROW_H=96, ROW_STEP=102;
 constexpr int TAB_Y=166,TAB_H=54,NAV_Y=666,NAV_H=56, NAV_W=136, NAV_GAP=16;
 constexpr int PAGE_Y=738, STATUS_Y=762, COUNT_Y=234, KICKER_X=310;
 constexpr unsigned TITLE_CHARS=28;
 constexpr int CARD_ART_DY=24, CARD_LINE1_DY=15, CARD_LINE2_DY=38, NAV_SMALL_DY=24, NAV_BIG_DY=20;
+// "Display >" opens Inkade's display settings; taps right of SETTINGS_X.
+constexpr int SETTINGS_X=330;
 #else
 constexpr int CONTENT_W=484, ROWS=5, ROW_Y=264, ROW_H=100, ROW_STEP=106;
 constexpr int TAB_Y=174,TAB_H=58,NAV_Y=818,NAV_H=58, NAV_W=144, NAV_GAP=26;
@@ -46,8 +49,13 @@ inline void center(Adafruit_GFX& d,const char* s,int x,int y,int w,int size=2,ui
     text(d,s,x+(w-int(strlen(s))*6*size)/2,y,size,color);
 }
 inline void header(Adafruit_GFX& d,uint8_t mask,InkSystem selected,unsigned count){
-    d.fillScreen(1);text(d,"< InkDeck",LEFT,26);text(d,"GAME LIBRARY",KICKER_X,30,1);
-    text(d,"Ink Boy",LEFT,91,4);text(d,"Your games, one place.",LEFT+2,138,2);
+    d.fillScreen(1);text(d,"< InkDeck",LEFT,26);
+#if defined(BOARD_SEEED_STICKY)
+    d.drawRoundRect(SETTINGS_X,12,RIGHT-SETTINGS_X,40,8,0);center(d,"Display >",SETTINGS_X,24,RIGHT-SETTINGS_X);
+#else
+    text(d,"GAME LIBRARY",KICKER_X,30,1);
+#endif
+    text(d,"Inkade",LEFT,91,4);text(d,"Your games, one place.",LEFT+2,138,2);
     int left=LEFT,w=tabWidth(mask);char label[24];
     for(int i=INK_SYSTEM_GB;i<=INK_SYSTEM_NES;i++)if(mask&(1<<i)){
         if(i==selected)d.fillRoundRect(left,TAB_Y,w,TAB_H,10,0);

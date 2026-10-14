@@ -15,8 +15,8 @@
 #include "NetworkWork.h"
 #endif
 
-#if defined(BOARD_SEEED_STICKY)
-// With Ink Boy the Sticky has five tiles: three tighter rows end above the
+#if defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
+// With Inkade the Sticky and Book32 have five tiles: three tighter rows end above the
 // footer on its 800 px screen.
 static constexpr int MENU_START_Y = 120, MENU_ROW_HEIGHT = 200;
 #else
@@ -54,7 +54,7 @@ static MenuDirtyRect unionRect(MenuDirtyRect a, MenuDirtyRect b) {
 
 static bool isReaderActive() {
     App* current = AppMgr::getInstance().getCurrentApp();
-    return current && (strcmp(current->getName(), "eReader") == 0 || strcmp(current->getName(), "Ink Boy") == 0);
+    return current && (strcmp(current->getName(), "eReader") == 0 || strcmp(current->getName(), "Inkade") == 0);
 }
 
 void AppMainMenu::updateCheckTask(void* parameter) {
@@ -136,9 +136,9 @@ void AppMainMenu::wifiWakeWork(void* parameter) {
         if (isReaderActive()) {
 #if BOOK32_HAS_INKBOY
             App* owner=AppMgr::getInstance().getCurrentApp();
-            if (owner && strcmp(owner->getName(),"Ink Boy")==0) {
+            if (owner && strcmp(owner->getName(),"Inkade")==0) {
                 self->_wifiStarting=false;self->_wifiTaskHandle=nullptr;
-                return; // Ink Boy alone drains HTTPS then powers down radio.
+                return; // Inkade alone drains HTTPS then powers down radio.
             }
 #endif
             WebMgr::getInstance().stop();
@@ -519,7 +519,7 @@ void AppMainMenu::draw() {
             if (icon) {
                 display.drawBitmap(x, y, icon, ICON_SIZE, ICON_SIZE, GxEPD_BLACK);
 #if BOOK32_HAS_INKBOY
-            } else if (strcmp(app->getName(), "Ink Boy") == 0) {
+            } else if (strcmp(app->getName(), "Inkade") == 0) {
                 for (int line = 0; line < 4; ++line)
                     display.drawRoundRect(x+10+line,y+32+line,140-line*2,98-line*2,24,GxEPD_BLACK);
                 display.fillRoundRect(x+35,y+65,46,14,3,GxEPD_BLACK);

@@ -15,6 +15,7 @@
 #include "../../include/Config.h"
 #include "RomUpload.h"
 #include "LilygoControls.h"
+#include "../Book32_Core/GamepadMgr.h"
 
 static const char* READER_PROGRESS_PATH = "/reader_progress.json";
 
@@ -942,6 +943,50 @@ void WebMgr::setupEndpoints() {
         }
     );
     server->addHandler(sleepSettingsHandler);
+
+    // API: Bluetooth gamepad - status, scan results
+    server->on("/api/gamepad", HTTP_GET, [](AsyncWebServerRequest *request) {
+        GamepadMgr& pad = GamepadMgr::getInstance();
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        DynamicJsonDocument doc(4096);
+        doc["state"] = pad.stateName();
+        doc["name"] = pad.savedName();
+        doc["address"] = pad.savedAddress();
+        doc["battery"] = pad.battery();
+        doc["buttons"] = pad.buttons();
+        doc["raw"] = pad.rawButtons();
+        JsonArray found = doc.createNestedArray("found");
+        for (const GamepadMgr::Found& f : pad.found()) {
+            JsonObject o = found.createNestedObject();
+            o["name"] = f.name;
+            o["address"] = f.address;
+            o["type"] = f.addressType;
+            o["rssi"] = f.rssi;
+            o["gamepad"] = f.gamepad;
+        }
+        serializeJson(doc, *response);
+        request->send(response);
+    });
+    server->on("/api/gamepad/scan", HTTP_POST, [](AsyncWebServerRequest *request) {
+        GamepadMgr::getInstance().scan(10);
+        request->send(200, "application/json", "{\"status\":\"scanning\"}");
+    });
+    server->on("/api/gamepad/forget", HTTP_POST, [](AsyncWebServerRequest *request) {
+        GamepadMgr::getInstance().forget();
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+    AsyncCallbackJsonWebHandler* gamepadPairHandler = new AsyncCallbackJsonWebHandler("/api/gamepad/pair",
+        [](AsyncWebServerRequest *request, JsonVariant &json) {
+            const String address = json["address"] | "";
+            if (address.length() < 17) {
+                request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing address\"}");
+                return;
+            }
+            GamepadMgr::getInstance().pair(address, json["type"] | 0, json["name"] | "");
+            request->send(200, "application/json", "{\"status\":\"ok\"}");
+        }
+    );
+    server->addHandler(gamepadPairHandler);
 
     // API: Switch to app by name
     server->on("/api/app/switch", HTTP_GET, [](AsyncWebServerRequest *request) {

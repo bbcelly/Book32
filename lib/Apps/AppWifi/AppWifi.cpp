@@ -16,6 +16,7 @@
 #include <esp_wifi.h>
 #include <algorithm>
 #include "LilygoControls.h"
+#include "../../Book32_Core/GamepadMgr.h"
 
 namespace {
 
@@ -26,8 +27,9 @@ constexpr int KEYBOARD_TOP = 165;
 constexpr int KEY_HEIGHT = 55;
 constexpr int KEY_GAP = 5;
 constexpr int SETTINGS_TOP = 150;
-constexpr int SETTINGS_ROW_HEIGHT = 95;
-constexpr int SETTINGS_CARD_HEIGHT = 78;
+constexpr int SETTINGS_ROW_HEIGHT = 82;
+constexpr int SETTINGS_CARD_HEIGHT = 74;
+constexpr int SETTINGS_HOME_ROWS = 7;
 constexpr unsigned long CONNECT_TIMEOUT_MS = 20000;
 
 String fittedText(FontMgr& fontMgr, const String& value, int width, int fontSize) {
@@ -418,7 +420,16 @@ void AppWifi::handleTouch(uint16_t x, uint16_t y) {
         if (y < SETTINGS_TOP) return;
         int row = (y - SETTINGS_TOP) / SETTINGS_ROW_HEIGHT;
         int withinRow = (y - SETTINGS_TOP) % SETTINGS_ROW_HEIGHT;
-        if (row < 0 || row > 5 || withinRow >= SETTINGS_CARD_HEIGHT) return;
+        if (row < 0 || row >= SETTINGS_HOME_ROWS || withinRow >= SETTINGS_CARD_HEIGHT) return;
+        if (row == 6) {
+            SoundMgr::getInstance().beep();
+            _view = GAMEPAD;
+            _status = "";
+            _padSignature = "";
+            _fullRefresh = true;
+            _needsRedraw = true;
+            return;
+        }
 
         if (row == 0) {
             SoundMgr::getInstance().beep();
@@ -460,13 +471,26 @@ void AppWifi::handleTouch(uint16_t x, uint16_t y) {
 #endif
             _fullRefresh = true;
             _needsRedraw = true;
-        } else {
+        } else if (row == 5) {
             SoundMgr::getInstance().beep();
             _rotation = _rotation == 3 ? 1 : 3;
             saveDisplayRotation();
             _fullRefresh = true;
             _needsRedraw = true;
         }
+        return;
+    }
+
+    if (_view == GAMEPAD) {
+        if (y >= 55 && y < 112) {
+            SoundMgr::getInstance().beep();
+            showSettingsHome();
+            return;
+        }
+        if (y < SETTINGS_TOP) return;
+        const int row = (y - SETTINGS_TOP) / SETTINGS_ROW_HEIGHT;
+        if ((y - SETTINGS_TOP) % SETTINGS_ROW_HEIGHT >= SETTINGS_CARD_HEIGHT) return;
+        gamepadTouch(row);
         return;
     }
 
@@ -641,6 +665,14 @@ void AppWifi::update() {
     if (now - _lastPoll < 250) return;
     _lastPoll = now;
 
+    // The gamepad page follows scanning and connecting as they happen.
+    if (_view == GAMEPAD && !_needsRedraw) {
+        GamepadMgr& pad = GamepadMgr::getInstance();
+        String signature = String(pad.stateName()) + pad.savedAddress() + pad.battery();
+        for (const GamepadMgr::Found& f : pad.found()) signature += f.address + f.name;
+        if (signature != _padSignature) _needsRedraw = true;
+    }
+
     if (_scanning) {
         int result = WiFi.scanComplete();
         if (result >= 0) finishScan(result);
@@ -681,6 +713,7 @@ void AppWifi::draw() {
     else if (_view == READER_DISPLAY) drawReaderDisplay();
     else if (_view == SLEEP_SCREEN) drawSleepScreen();
     else if (_view == LIGHT_BUTTONS) drawLightButtons();
+    else if (_view == GAMEPAD) drawGamepad();
     else if (_view == NETWORK_LIST) drawNetworkList();
     else if (_view == PASSWORD_KEYBOARD || _view == MESSAGE_KEYBOARD) drawKeyboard();
     else drawConnectionResult();
@@ -732,6 +765,13 @@ void AppWifi::drawSettingsHome() {
 #endif
         drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 5,
                         "Orientation", rotationValue);
+        {
+            GamepadMgr& pad = GamepadMgr::getInstance();
+            String padValue = !pad.hasSaved() ? String("None paired - tap to pair")
+                              : (pad.savedName().length() ? pad.savedName() : pad.savedAddress()) + " - " +
+                                    pad.stateName();
+            drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 6, "Bluetooth gamepad", padValue);
+        }
         fontMgr.drawTextCentered(display, "Tap a setting to change it", 760,
                                  FONT_SIZE_SMALL, GxEPD_BLACK);
     } while (display.nextPage());
@@ -788,6 +828,83 @@ void AppWifi::drawReaderDisplay() {
         drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 3,
                         "Reading percentage", _showReadingPercentage ? "Shown" : "Hidden");
         fontMgr.drawTextCentered(display, "Tap an option to change it", 760,
+                                 FONT_SIZE_SMALL, GxEPD_BLACK);
+    } while (display.nextPage());
+}
+
+void AppWifi::gamepadTouch(int row) {
+    GamepadMgr& pad = GamepadMgr::getInstance();
+    SoundMgr::getInstance().beep();
+    if (row == 0) {
+        pad.scan(10);
+        _status = "Scanning... put the pad in Bluetooth pairing mode";
+    } else if (row - 1 < int(_padAddresses.size())) {
+        const String address = _padAddresses[row - 1];
+        for (const GamepadMgr::Found& f : pad.found())
+            if (f.address == address) {
+                pad.pair(f.address, f.addressType, f.name);
+                _status = "Pairing with " + (f.name.length() ? f.name : f.address);
+            }
+    } else if (row - 1 == int(_padAddresses.size()) && pad.hasSaved()) {
+        pad.forget();
+        _status = "Gamepad forgotten";
+    }
+    _needsRedraw = true;
+}
+
+void AppWifi::drawGamepad() {
+    Book32Display& display = DisplayMgr::getInstance().getDisplay();
+    FontMgr& fontMgr = FontMgr::getInstance();
+    if (_fullRefresh) display.setFullWindow();
+    else display.setPartialWindow(0, 0, display.width(), display.height());
+    _fullRefresh = false;
+
+    GamepadMgr& pad = GamepadMgr::getInstance();
+    const std::vector<GamepadMgr::Found> found = pad.found();
+    _padSignature = String(pad.stateName()) + pad.savedAddress() + pad.battery();
+    for (const GamepadMgr::Found& f : found) _padSignature += f.address + f.name;
+    // Gamepads (HID) first, then other named devices; at most what fits.
+    std::vector<GamepadMgr::Found> rows;
+    for (int pass = 0; pass < 2; ++pass)
+        for (const GamepadMgr::Found& f : found)
+            if ((pass == 0) == f.gamepad && (f.gamepad || f.name.length())) rows.push_back(f);
+    const int maxRows = (display.height() - 60 - SETTINGS_TOP) / SETTINGS_ROW_HEIGHT - 2;
+    if (int(rows.size()) > maxRows) rows.resize(maxRows);
+    _padAddresses.clear();
+    for (const GamepadMgr::Found& f : rows) _padAddresses.push_back(f.address);
+
+    String state;
+    if (!pad.hasSaved()) state = "No gamepad paired";
+    else {
+        state = (pad.savedName().length() ? pad.savedName() : pad.savedAddress()) + ": " + pad.stateName();
+        if (pad.state() == GamepadMgr::CONNECTED && pad.battery()) state += ", battery " + String(pad.battery()) + "%";
+    }
+    if (pad.state() == GamepadMgr::SCANNING) state = "Scanning for gamepads...";
+
+    display.firstPage();
+    do {
+        display.fillScreen(GxEPD_WHITE);
+        fontMgr.drawText(display, "Bluetooth Gamepad", 15, 35, FONT_SIZE_SUBTITLE, GxEPD_BLACK);
+        display.drawLine(0, 50, display.width(), 50, GxEPD_BLACK);
+        drawCenteredButton(display, fontMgr, 10, 58, display.width() - 20, 52, "< Settings");
+        String status = fittedText(fontMgr, _status.length() ? _status : state, display.width() - 30, FONT_SIZE_SMALL);
+        fontMgr.drawTextCentered(display, status.c_str(), 132, FONT_SIZE_SMALL, GxEPD_BLACK);
+
+        int row = 0;
+        drawSettingCard(display, fontMgr, SETTINGS_TOP, "Scan for gamepads", state);
+        for (const GamepadMgr::Found& f : rows) {
+            ++row;
+            const bool saved = f.address == pad.savedAddress();
+            String value = f.address + (f.gamepad ? "" : "  (not a gamepad)") + (saved ? "  - paired" : "  - tap to pair");
+            drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * row,
+                            f.name.length() ? f.name.c_str() : "Unnamed device", value);
+        }
+        if (pad.hasSaved()) {
+            ++row;
+            drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * row, "Forget gamepad",
+                            pad.savedName().length() ? pad.savedName() : pad.savedAddress());
+        }
+        fontMgr.drawTextCentered(display, "Bluetooth LE pads only (BLE / Android mode)", display.height() - 40,
                                  FONT_SIZE_SMALL, GxEPD_BLACK);
     } while (display.nextPage());
 }

@@ -1,4 +1,5 @@
 #include "BatteryMgr.h"
+#include "GamepadMgr.h"
 #include "SleepDefaults.h"
 #include "../../include/Config.h"
 #include "Config.h"
@@ -192,8 +193,11 @@ void BatteryMgr::update() {
 
     // Check for idle timeout (only if enabled and not charging)
     if (_sleepTimeoutMinutes > 0 && !_cachedStatus.charging) {
-        unsigned long idleTime = now - _lastActivityTime;
-        unsigned long timeoutMs = (unsigned long)_sleepTimeoutMinutes * 60 * 1000;
+        // Signed: activity is also recorded from other tasks (web uploads on
+        // the other core). One stamped just after `now` was read must count as
+        // "no idle time", not wrap to ~49 days and trigger sleep at once.
+        const long idleTime = long(now - _lastActivityTime);
+        const long timeoutMs = long(_sleepTimeoutMinutes) * 60 * 1000;
         if (idleTime >= timeoutMs) {
             Serial.printf("Idle timeout reached (%d minutes). Entering sleep...\n", _sleepTimeoutMinutes);
             enterIdleSleep();
@@ -442,7 +446,8 @@ void BatteryMgr::setReaderActive(bool active) {
 }
 
 void BatteryMgr::enterIdleSleep() {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+#if BOOK32_HAS_INKBOY
+    // Never sleep (and shut the network down) under a ROM upload.
     if (RomStorage::uploading()) { resetIdleTimer(); return; }
 #endif
     if (_sleeping) return;
@@ -457,6 +462,7 @@ void BatteryMgr::enterIdleSleep() {
     App* currentApp = AppMgr::getInstance().getCurrentApp();
     if (currentApp) currentApp->stop();
     InputMgr::getInstance().prepareForSleep();
+    GamepadMgr::getInstance().shutdown();
     WebMgr::getInstance().stop();
     // Every board (including Book32's management hotspot) powers the radio
     // fully down before sleeping.
@@ -568,6 +574,15 @@ void BatteryMgr::drawStatusIndicator() {
     return;
 #endif
 
+#if BOOK32_HAS_INKBOY
+    // Inkade draws full screens (and drives the game window directly): a
+    // partial indicator refresh would land in the middle of them.
+    App* active = AppMgr::getInstance().getCurrentApp();
+    if (active && strcmp(active->getName(), "Inkade") == 0) {
+        _lastDisplayedCharging = currentCharging;
+        return;
+    }
+#endif
     // Only refresh display when charging state changes (plugged in or unplugged)
     if (currentCharging == _lastDisplayedCharging) {
         return;  // No change, no update needed

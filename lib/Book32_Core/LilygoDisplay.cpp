@@ -6,6 +6,7 @@
 #include "GameViewport.h"
 #include "NesViewport.h"
 #include "GameVideoSelfTest.h"
+#include "StickyGrayImage.h"
 namespace { constexpr uint8_t FRONTLIGHT_CHANNEL = 7; }
 
 void LilygoDisplay::init(uint32_t, bool, uint16_t, bool) {
@@ -44,9 +45,54 @@ void LilygoDisplay::refresh(bool partial) {
     for (int y = 0; y < LilygoLayout::CANVAS_H; ++y)
         memcpy(_panel.currentBuffer() + (y + LilygoLayout::INSET) * 120 + LilygoLayout::INSET / 8,
                getBuffer() + y * LilygoLayout::PITCH, LilygoLayout::PITCH);
+    if (_forceFull) { partial = false; _forceFull = false; }
     int result = partial ? _panel.partialUpdate(_gaming)
                          : _panel.fullUpdate(CLEAR_SLOW, false);
     checkResult(result);
+}
+
+bool LilygoDisplay::drawGrayCover(uint8_t* gray, int x, int y, int w, int h) {
+    using namespace LilygoLayout;
+    if (!_ready || !getBuffer() || !_panel.currentBuffer() || _gaming || !gray) return false;
+    int16_t* errors = static_cast<int16_t*>(ps_malloc(sizeof(int16_t) * 2 * (w + 2)));
+    if (!errors) return false;
+    StickyGrayImage::quantize(gray, w, h, errors, StickyGrayImage::LILYGO_TONES, StickyGrayImage::LILYGO_TONE_COUNT);
+    free(errors);
+    stopVideo();
+    if (_panel.setMode(BB_MODE_4BPP) != BBEP_SUCCESS) return false;
+    // 4-bit native-landscape buffer, two pixels per byte (high nibble first),
+    // 15 white: the canvas in black and white, then the cover in gray.
+    uint8_t* panel = _panel.currentBuffer();
+    constexpr int NATIVE_PITCH = PANEL_W / 2;
+    memset(panel, 0xff, NATIVE_PITCH * PANEL_H);
+    auto put = [&](int nx, int ny, uint8_t level) {
+        uint8_t& pair = panel[ny * NATIVE_PITCH + nx / 2];
+        pair = (nx & 1) ? (pair & 0xf0) | level : (pair & 0x0f) | (level << 4);
+    };
+    const uint8_t* canvas = getBuffer();
+    for (int ry = 0; ry < CANVAS_H; ++ry)
+        for (int rx = 0; rx < CANVAS_W; ++rx)
+            if (!(canvas[ry * PITCH + rx / 8] & (0x80 >> (rx & 7)))) put(rx + INSET, ry + INSET, 0);
+    const uint8_t rotation = getRotation();
+    for (int row = 0; row < h; ++row) {
+        const int py = y + row;
+        if (py < 0 || py >= HEIGHT) continue;
+        for (int col = 0; col < w; ++col) {
+            const int px = x + col;
+            if (px < 0 || px >= WIDTH) continue;
+            // GFXcanvas1's rotation (1 or 3) to the raw landscape canvas.
+            const int rx = rotation == 1 ? CANVAS_W - 1 - py : py;
+            const int ry = rotation == 1 ? px : CANVAS_H - 1 - px;
+            put(rx + INSET, ry + INSET, gray[row * w + col]);
+        }
+    }
+    const uint32_t started = millis();
+    checkResult(_panel.fullUpdate(CLEAR_SLOW, false));
+    _panel.setMode(BB_MODE_1BPP);
+    // The previous-image buffer shares memory with the 4-bit frame.
+    _forceFull = true;
+    Serial.printf("LilygoDisplay: grayscale image %dx%d in %lu ms\n", w, h, millis() - started);
+    return _ready;
 }
 
 void LilygoDisplay::checkResult(int result) {

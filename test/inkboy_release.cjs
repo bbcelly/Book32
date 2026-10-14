@@ -18,4 +18,4 @@ assert.match(read('data/index.html'), /AGPL/);
 assert.match(read('data/index.html'), /Complete source and license notices/);
 assert.match(read('THIRD_PARTY_NOTICES.md'), /CrankBoy/);
 assert.match(read('THIRD_PARTY_NOTICES.md'), /Nofrendo/);
-console.log('Ink Boy release PASS: GB/GBC and NES only; current UI and source notices agree');
+console.log('Inkade release PASS: GB/GBC and NES only; current UI and source notices agree');

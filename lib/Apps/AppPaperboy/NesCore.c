@@ -1,4 +1,4 @@
-#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -86,7 +86,7 @@ bool inkNesFrame(uint16_t buttons,uint8_t* shades) {
 #ifdef ESP_PLATFORM
     const int64_t started=esp_timer_get_time();
 #endif
-    // Ink Boy keeps GB's established direction bits; NES pad ordering differs.
+    // Inkade keeps GB's established direction bits; NES pad ordering differs.
     uint8_t pad=(buttons&15)|((buttons&0x10)<<3)|((buttons&0x20)<<1)|((buttons&0x40)>>2)|((buttons&0x80)>>2);
     input_update(0,pad);nes_emulate(true);
 #ifdef ESP_PLATFORM

@@ -680,6 +680,8 @@ EpubBitmap::~EpubBitmap() { clear(); }
 
 EpubBitmap::EpubBitmap(EpubBitmap&& other) noexcept {
     _pixels = other._pixels;
+    _gray = other._gray;
+    other._gray = nullptr;
     _stride = other._stride;
     width = other.width;
     height = other.height;
@@ -693,6 +695,8 @@ EpubBitmap& EpubBitmap::operator=(EpubBitmap&& other) noexcept {
     if (this == &other) return *this;
     clear();
     _pixels = other._pixels;
+    _gray = other._gray;
+    other._gray = nullptr;
     _stride = other._stride;
     width = other.width;
     height = other.height;
@@ -705,7 +709,9 @@ EpubBitmap& EpubBitmap::operator=(EpubBitmap&& other) noexcept {
 
 void EpubBitmap::clear() {
     if (_pixels) free(_pixels);
+    if (_gray) free(_gray);
     _pixels = nullptr;
+    _gray = nullptr;
     _stride = 0;
     width = 0;
     height = 0;
@@ -721,6 +727,11 @@ bool EpubBitmap::allocate(int bitmapWidth, int bitmapHeight) {
     if (_pixels) return true;
     clear();
     return false;
+}
+
+void EpubBitmap::keepGray(uint8_t* gray) {
+    if (_gray) free(_gray);
+    _gray = gray;
 }
 
 void EpubBitmap::draw(Book32Display& display, int x, int y) const {
@@ -778,6 +789,7 @@ bool EpubImageDecoder::decode(const uint8_t* data, size_t size, int maxWidth, in
         dithered = cover ? ditherFloydSteinberg(gray, targetWidth, targetHeight, bitmap)
                          : ditherAtkinson(gray, targetWidth, targetHeight, bitmap);
     }
-    free(gray);
+    if (dithered && cover) bitmap.keepGray(gray);  // the bitmap now owns it
+    else free(gray);
     return dithered;
 }

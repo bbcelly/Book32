@@ -1,5 +1,5 @@
 #pragma once
-#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <algorithm>
@@ -40,7 +40,7 @@ inline void receive(AsyncWebServerRequest* request, String filename, size_t inde
         request->onDisconnect([request]() { cleanup(request); });
         if (index) { error(s, 400, "Invalid upload offset"); return; }
         if (!inkRomFilename(filename.c_str())) { error(s, 400, "Choose .gb/.gbc or .nes with a simple filename (96 bytes maximum)"); return; }
-        if (!ebookStorageUsesSD()) { error(s, 503, "Insert a MicroSD card and restart InkDeck"); return; }
+        if (!romStorageReady()) { error(s, 503, "Insert a MicroSD card and restart InkDeck"); return; }
         if (!RomStorage::acquire(RomStorage::Upload)) { error(s, 409, "Another upload or game is active"); return; }
         s->owns = true;
         snprintf(s->path, sizeof(s->path), "/roms/%s", filename.c_str());
@@ -98,7 +98,7 @@ inline void configure(AsyncWebServer* server) {
         if (name.length() != strlen(name.c_str()) || !inkRomFilename(name.c_str())) {
             request->send(400, "application/json", "{\"error\":\"Invalid ROM filename\"}"); return;
         }
-        if (!ebookStorageUsesSD()) { request->send(503, "application/json", "{\"error\":\"MicroSD card is not mounted\"}"); return; }
+        if (!romStorageReady()) { request->send(503, "application/json", "{\"error\":\"MicroSD card is not mounted\"}"); return; }
         if (!RomStorage::acquire(RomStorage::Upload)) { request->send(409, "application/json", "{\"error\":\"Another upload or game is active\"}"); return; }
         const String path = "/roms/" + name;
         int status = 200;
@@ -117,7 +117,7 @@ inline void configure(AsyncWebServer* server) {
         request->send(status, "application/json", body);
     });
     server->on("/api/roms", HTTP_GET, [](AsyncWebServerRequest* request) {
-        if (!ebookStorageUsesSD()) { request->send(503, "application/json", "{\"error\":\"Insert a MicroSD card and restart InkDeck\"}"); return; }
+        if (!romStorageReady()) { request->send(503, "application/json", "{\"error\":\"Insert a MicroSD card and restart InkDeck\"}"); return; }
         if (!RomStorage::acquire(RomStorage::Upload)) { request->send(409, "application/json", "{\"error\":\"ROM storage is busy\"}"); return; }
         auto* response = request->beginResponseStream("application/json");
         response->print("{\"roms\":[");

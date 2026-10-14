@@ -34,6 +34,7 @@ private:
         READER_DISPLAY,
         SLEEP_SCREEN,
         LIGHT_BUTTONS,
+        GAMEPAD,
         NETWORK_LIST,
         PASSWORD_KEYBOARD,
         MESSAGE_KEYBOARD,
@@ -85,6 +86,10 @@ private:
     void drawReaderDisplay();
     void drawSleepScreen();
     void drawLightButtons();
+    void drawGamepad();
+    void gamepadTouch(int row);
+    std::vector<String> _padAddresses;   // found pads, in drawn row order
+    String _padSignature;                // last drawn gamepad page state
     void drawNetworkList();
     void drawKeyboard();
     void drawConnectionResult();

@@ -34,6 +34,14 @@ public:
     struct TouchPoint { uint16_t x, y; };
     uint8_t heldTouches(TouchPoint* points) const;
 #endif
+    // USB serial test commands, one per line:
+    //   tap X Y          a single tap at portrait (X, Y)
+    //   hold X Y MS      a finger held at (X, Y) for MS milliseconds (game controls)
+    void pollSerialCommands();
+    // Other lines go to this handler (e.g. Inkade's "set ..." tuning).
+    using SerialHandler = std::function<void(const char*)>;
+    void setSerialHandler(SerialHandler handler) { serialHandler = handler; }
+    void clearSerialHandler() { serialHandler = nullptr; }
 
     using InputCallback = std::function<void(InputAction)>;
     using TouchCallback = std::function<void(uint16_t, uint16_t)>;
@@ -61,9 +69,13 @@ private:
 #endif
 #if BOOK32_HAS_INKBOY
     TouchPoint _points[5] = {};
+    TouchPoint _injected = {};
+    volatile unsigned long _injectedUntil = 0;
     volatile uint8_t _pointCount = 0;
     volatile unsigned long _pointsAt = 0;
 #endif
+    String _serialLine;
+    SerialHandler serialHandler;
 #if defined(BOARD_LILYGO_T5S3_PRO)
     DebouncedPress _frontlightButton;
     uint32_t _frontlightPolledAt = 0;

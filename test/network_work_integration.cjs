@@ -16,7 +16,7 @@ const menu=fs.readFileSync('lib/Book32_Apps/AppMainMenu.cpp','utf8');
 const startup=main.slice(main.indexOf('static void networkStartupWork'),main.indexOf('static void networkStartupTask'));
 const wake=menu.slice(menu.indexOf('void AppMainMenu::wifiWakeWork'),menu.indexOf('String AppMainMenu::getWifiFooterText'));
 assert(!startup.includes('vTaskDelete')&&!wake.includes('vTaskDelete'));
-assert(startup.includes('"Ink Boy"')&&!main.includes('"Paperboy"'));
+assert(startup.includes('"Inkade"')&&!main.includes('"Paperboy"'));
 assert.match(main,/NetworkWork::Lease network;\s*if \(network\) networkStartupWork/);
 assert.match(menu,/NetworkWork::Lease network;\s*if \(network\) wifiWakeWork/);
 console.log('Network integration PASS: TLS destruction before lease release, drained shutdown, task unwinding, current app name');

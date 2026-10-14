@@ -1,5 +1,5 @@
 #include "AppPaperboy.h"
-#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
 #include "ConsoleCore.h"
 #include "RomFormat.h"
 #include "RomStorage.h"
@@ -19,12 +19,14 @@
 #include <algorithm>
 #include <soc/soc_memory_types.h>
 #include "NetworkWork.h"
+#include "GamepadMgr.h"
+#include "InkBoyDrive.h"
 
 namespace {
-#if defined(BOARD_SEEED_STICKY)
-#define INKBOY_GB_VIDEO_LOG "Ink Boy 2x: SSD1677 per-pixel pulses (25 ms pulses: white 2 / black 2), 20MHz, window 320x288"
+#if INKADE_INKBOY_VIDEO
+#define INKBOY_GB_VIDEO_LOG "Inkade 2x: SSD1677 per-pixel drive, 20MHz, window 320x288"
 #else
-#define INKBOY_GB_VIDEO_LOG "Ink Boy 3x: fixed Contrast, 6 pulses, 540 rows, 20MHz, window 480x432"
+#define INKBOY_GB_VIDEO_LOG "Inkade 3x: fixed Contrast, 6 pulses, 540 rows, 20MHz, window 480x432"
 #endif
 
 // Pause / saves screen geometry, shared by painting and hit testing.
@@ -38,7 +40,7 @@ struct PauseLayout {
     int confirmTextY, confirmNoteY, confirmY, confirmH, confirmW, confirmRightX;
     int systemLabelX;
 };
-#if defined(BOARD_SEEED_STICKY)
+#if INKADE_INKBOY_VIDEO
 constexpr PauseLayout PAUSE = {20, 440, 110, 64, 200, 82, 64, 210, 340, 120,
                                560, 64, 640, 60, 718, 748, 250, 300, 420, 76, 210, 250, 330};
 #else
@@ -100,11 +102,11 @@ void AppPaperboy::start() {
     NetworkWork::gate().pause();
     if (!NetworkWork::gate().idle()) {
         auto& display=DisplayMgr::getInstance().getDisplay();
-        display.fillScreen(GxEPD_WHITE);
-        label(display,"Preparing Ink Boy",30,180,3);
+        display.setFullWindow(); display.fillScreen(GxEPD_WHITE);
+        label(display,"Preparing Inkade",30,180,3);
         label(display,"Finishing network activity...",30,250,2);
         display.refresh(false);
-        Serial.println("Ink Boy: waiting for network owners before radio shutdown");
+        Serial.println("Inkade: waiting for network owners before radio shutdown");
         while (!NetworkWork::gate().idle()) vTaskDelay(pdMS_TO_TICKS(10));
     }
     WebMgr::getInstance().stop();
@@ -112,10 +114,20 @@ void AppPaperboy::start() {
     WiFi.disconnect(false); WiFi.mode(WIFI_OFF);
     BatteryMgr::getInstance().setReaderActive(false);
     BatteryMgr::getInstance().resetIdleTimer();
-    InputMgr::getInstance().setCallback([this](InputAction a) {
-        if (a == INPUT_SELECT || a == INPUT_BACK) back();
-    });
+    InputMgr::getInstance().setCallback([this](InputAction a) { keyAction(a); });
     InputMgr::getInstance().setTouchCallback([this](uint16_t x, uint16_t y) { tap(x, y); });
+#if INKADE_INKBOY_VIDEO
+    _screen = SCREEN_LIBRARY;
+    _display = InkadeSettings::Active();
+    if (!InkadeSettings::load(_display)) {
+#if defined(BOARD_SEEED_XIAO_ESP32S3)
+        // Book32's panel takes about twice as long per grayscale pair.
+        _display.video.mode = InkBoyDrive::MODE_DITHERED;
+#endif
+    }
+    DisplayMgr::getInstance().getDisplay().setGameSettings(_display.video);
+    InputMgr::getInstance().setSerialHandler([this](const char* line) { serialSetting(line); });
+#endif
     if (!_mutex) _mutex = xSemaphoreCreateMutex();
     if (!_frameMutex) _frameMutex = xSemaphoreCreateMutex();
     if (!_latest) _latest = allocateFrame(GameViewport::PACKED_BYTES);
@@ -131,13 +143,13 @@ void AppPaperboy::start() {
 void AppPaperboy::scan() {
     _roms.clear(); _page = 0; _systemMask=0;
     _message = "Add Game Boy or NES ROMs to /roms on SD.";
-    if (ebookStorageUsesSD()) {
+    if (romStorageReady()) {
         File dir = EbookFS.open("/roms");
         if (dir && dir.isDirectory()) {
             for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
                 String name = f.name(); name = name.substring(name.lastIndexOf('/') + 1);
                 InkSystem system=inkRomSystem(name.c_str());
-#if defined(BOARD_SEEED_STICKY)
+#if INKADE_INKBOY_VIDEO
                 // NES (256x240) does not fit the Sticky's 2x video window yet.
                 if (system == INK_SYSTEM_NES) { f.close(); continue; }
 #endif
@@ -159,7 +171,7 @@ void AppPaperboy::scan() {
     _redraw = true;
 }
 void AppPaperboy::filterRoms() {
-    _filtered.clear();_page=0;
+    _filtered.clear();_page=0;_cursor=0;
     for(unsigned i=0;i<_roms.size();i++)if(inkRomSystem(_roms[i].c_str())==_selectedSystem)_filtered.push_back(i);
 }
 
@@ -185,7 +197,49 @@ void AppPaperboy::packVideo(uint8_t* destination) {
         if(indexed) NesViewport::packIndexed(destination,indexed,pitch,palette,_gameRotation);
         else NesViewport::pack2x(destination,inkNesNativeImage(),_gameRotation);
     }
-    else GameViewport::pack(destination,_workFrame,_gameRotation);
+    else {
+#if INKADE_INKBOY_VIDEO
+        // InkBoy drive input: the 2-bit source (grayscale) or the Bayer-
+        // dithered window (dithered).
+        if (_display.video.showFps) InkBoyDrive::stampFps(_workFrame,_fpsShown.load());
+        if (_display.video.mode == InkBoyDrive::MODE_GRAYSCALE)
+            InkBoyDrive::packSource(destination,_workFrame,_gameRotation);
+        else
+            InkBoyDrive::packDithered(destination,_workFrame,_gameRotation);
+#else
+        GameViewport::pack(destination,_workFrame,_gameRotation);
+#endif
+    }
+}
+
+// Packed-frame byte that shows an all-white picture.
+uint8_t AppPaperboy::whiteFill() const {
+    if (_nesVideo) return 0;  // NES shade 0
+#if INKADE_INKBOY_VIDEO
+    if (_display.video.mode == InkBoyDrive::MODE_GRAYSCALE) return 0;  // 2-bit shade 0
+#endif
+    return 0xff;  // GB: bit 1 is white
+}
+
+// LILYGO: scans start at least 16.7 ms apart, as fast as the panel goes.
+void AppPaperboy::waitForScanSlot(bool clean) {
+    if (clean || !_lastScanStarted) return;
+    const int32_t elapsed = int32_t(micros() - _lastScanStarted);
+    if (elapsed < 16667) delayMicroseconds(16667 - elapsed);
+}
+
+void AppPaperboy::scanStarted(bool) { _lastScanStarted = micros(); }
+
+void AppPaperboy::countFps(bool fresh) {
+    if (fresh) ++_fpsCount;
+    const unsigned long now = millis();
+    if (now - _fpsAt >= 1000) {
+        _fpsShown = uint8_t(std::min<unsigned long>(99, _fpsCount * 1000UL / (now - _fpsAt)));
+        _fpsCount = 0; _fpsAt = now;
+#if INKADE_INKBOY_VIDEO
+        if (_screen == SCREEN_TEST) Serial.printf("Inkade test: %u fps\n", unsigned(_fpsShown.load()));
+#endif
+    }
 }
 
 bool AppPaperboy::save() {
@@ -234,7 +288,7 @@ bool AppPaperboy::saveState(unsigned slot) {
     free(data);
     if (ok) _slots[slot] = true;
     _message = ok ? (slot ? "Saved to slot " + String(slot) : "Automatic resume saved") : "Save failed; check SD card";
-    Serial.printf("Ink Boy state %u: %s\n", slot, _message.c_str());
+    Serial.printf("Inkade state %u: %s\n", slot, _message.c_str());
     return ok;
 }
 
@@ -264,7 +318,7 @@ bool AppPaperboy::loadState(unsigned slot) {
         _message = slot ? "Loaded slot " + String(slot) : "Resumed automatic save";
     }
     xSemaphoreGive(_mutex);
-    Serial.printf("Ink Boy load %u: %s\n", slot, _message.c_str());
+    Serial.printf("Inkade load %u: %s\n", slot, _message.c_str());
     return ok;
 }
 
@@ -288,7 +342,13 @@ void AppPaperboy::resumeGame() {
     auto& d = DisplayMgr::getInstance().getDisplay();
     _paused = false; _confirmation = 0;
     _redraw = false; _forceClean = true; _lastScanStarted = 0;
-    paintGame(); d.refresh(false); d.setGameMode(true);
+    paintGame(); d.refresh(false);
+#if INKADE_INKBOY_VIDEO
+    d.setGameSettings(_display.video);
+    _nextImage = 0; _lastChange = esp_timer_get_time(); _analogOn = true;
+#endif
+    d.setGameMode(true);
+    _fpsCount = 0; _fpsAt = millis();
     _lastStats = millis(); _frames = 0; _drawnFrames = 0; _updates = 0;
     _emulationUs = _packingUs = _overBudgetFrames = 0;
     _renderUs = _refreshUs = _regularUpdates = 0;
@@ -315,7 +375,7 @@ void AppPaperboy::stop() {
     // Neutralize pending video drive before SD saves or other blocking work.
     DisplayMgr::getInstance().getDisplay().setGameMode(false);
     if (!_savePath.isEmpty() && !_coreFault && (!saveState(0) || !save()))
-        Serial.println("Ink Boy: save failed; previous saves preserved");
+        Serial.println("Inkade: save failed; previous saves preserved");
     if (_mutex) {
         xSemaphoreTake(_mutex, portMAX_DELAY);
         inkConsoleClose(); free(_rom); _rom = nullptr;
@@ -330,6 +390,11 @@ void AppPaperboy::stop() {
     }
     _savePath = "";
     _paused = false; _confirmation = 0;
+    GamepadMgr::getInstance().setRawMode(false);
+#if INKADE_INKBOY_VIDEO
+    _screen = SCREEN_LIBRARY;
+    InputMgr::getInstance().clearSerialHandler();
+#endif
     DisplayMgr::getInstance().getDisplay().setGameMode(false);
     InputMgr::getInstance().clearCallback();
     InputMgr::getInstance().clearTouchCallback();
@@ -338,7 +403,51 @@ void AppPaperboy::stop() {
     NetworkWork::gate().resume();
 }
 
+// Keys: the board's buttons and a Bluetooth gamepad's menu actions.
+void AppPaperboy::keyAction(InputAction a) {
+    if (_playing) {  // the pad itself is read raw while playing
+        if (a == INPUT_SELECT || a == INPUT_BACK) back();
+        return;
+    }
+#if INKADE_INKBOY_VIDEO
+    if (_screen != SCREEN_LIBRARY) {
+        if (a == INPUT_BACK) back();
+        return;
+    }
+#endif
+    if (_paused) {
+        // Select resumes; Back saves and returns to the game list.
+        if (a == INPUT_SELECT || (a == INPUT_BACK && _confirmation)) back();
+        else if (a == INPUT_BACK) exitGame();
+        return;
+    }
+    if (a == INPUT_NEXT || a == INPUT_PREV) {
+        if (_filtered.empty()) return;
+        if (_cursorShown) {
+            const int n = _filtered.size();
+            _cursor = (_cursor + (a == INPUT_NEXT ? 1 : n - 1)) % n;
+        }
+        _cursorShown = true;
+        _page = _cursor / InkBoyLibraryUi::ROWS;
+        _redraw = true;
+    } else if (a == INPUT_SELECT) {
+        if (_cursorShown && _cursor < _filtered.size()) openBook(_roms[_filtered[_cursor]]);
+        else if (!_filtered.empty()) { _cursorShown = true; _redraw = true; }
+    } else if (a == INPUT_BACK) {
+        back();
+    }
+}
+
 void AppPaperboy::back() {
+#if INKADE_INKBOY_VIDEO
+    if (_screen == SCREEN_TEST) { stopTest(); return; }
+    if (_screen == SCREEN_SETTINGS) {
+        if (_settingsPage != PAGE_MAIN) _settingsPage = PAGE_MAIN;
+        else _screen = SCREEN_LIBRARY;
+        _redraw = true;
+        return;
+    }
+#endif
     if (_playing) { _message = ""; pauseGame(); }
     else if (_paused && _confirmation) { _confirmation = 0; _redraw = true; }
     else if (_paused) resumeGame();
@@ -350,7 +459,7 @@ void AppPaperboy::openBook(const String& path) {
     if (!_savePath.isEmpty() && !save()) { _message = "Save failed; cannot change games"; _redraw = true; return; }
     auto& d = DisplayMgr::getInstance().getDisplay();
     InkSystem selected=inkRomSystem(path.c_str());
-    d.fillScreen(GxEPD_WHITE); label(d,"Ink Boy",30,100,4);
+    d.setFullWindow(); d.fillScreen(GxEPD_WHITE); label(d,"Inkade",30,100,4);
     label(d,"Opening your game",30,205,3);
     label(d,String(inkSystemName(selected))+" emulator",30,264,2);
     String title=path.substring(path.lastIndexOf('/')+1);if(title.length()>38)title=title.substring(0,35)+"...";
@@ -429,7 +538,7 @@ void AppPaperboy::openBook(const String& path) {
     if (ok) {
         _gameRotation = d.getRotation(); // Stable until gameplay stops.
         _gamePeriodUs=inkConsolePeriod();
-        memset(_snapshot, _nesVideo ? 0 : 0xff, packedBytes()); // NES shade 0 / GB bit 1 are white.
+        memset(_snapshot, whiteFill(), packedBytes()); // NES shade 0 / GB bit 1 are white.
         _coreFault = false; _paused = false; _confirmation = 0;
         inspectSlots();
         bool autoFailed = _slots[0] && !loadState(0);
@@ -441,14 +550,14 @@ void AppPaperboy::openBook(const String& path) {
         _lastScanStarted = 0;
         _presentations.reset();
         resetFrameTiming();
-        Serial.println(_nesVideo ? "Ink Boy NES 2x: native 256x240, window 512x480, four shades, fixed Contrast" :
+        Serial.println(_nesVideo ? "Inkade NES 2x: native 256x240, window 512x480, four shades, fixed Contrast" :
                                   INKBOY_GB_VIDEO_LOG);
         Serial.printf("Game core: %s; %u us/frame (grayscale, no audio); CPU %u MHz\n",inkConsoleName(),_gamePeriodUs,getCpuFrequencyMhz());
         _lastClean = _lastStats = millis(); _frames = 0; _drawnFrames = 0; _updates = 0;
         if (autoFailed) { _paused = true; _redraw = true; }
         else resumeGame();
     } else {
-        Serial.printf("Ink Boy load failed: %s\n", _message.c_str());
+        Serial.printf("Inkade load failed: %s\n", _message.c_str());
         xSemaphoreTake(_mutex, portMAX_DELAY);
         inkConsoleClose(); free(_rom); _rom = nullptr;
         if (_romFile) _romFile.close();
@@ -458,6 +567,11 @@ void AppPaperboy::openBook(const String& path) {
 }
 
 void AppPaperboy::tap(uint16_t x, uint16_t y) {
+#if INKADE_INKBOY_VIDEO
+    if (_screen == SCREEN_SETTINGS) { settingsTap(x, y); return; }
+    if (_screen == SCREEN_TEST) { testTap(x, y); return; }
+    if (!_playing && !_paused && y < 60 && x >= InkBoyLibraryUi::SETTINGS_X) { openSettings(); return; }
+#endif
     if (y < (_playing && _nesVideo ? NesViewport::Y : 60)) { back(); return; }
     if (_paused) {
         const PauseLayout& p = PAUSE;
@@ -471,7 +585,7 @@ void AppPaperboy::tap(uint16_t x, uint16_t y) {
                     xSemaphoreTake(_mutex, portMAX_DELAY);
                     bool ok = inkConsoleRestart();
                     _frameReady = false; _snapshotValid = false;
-                    memset(_snapshot, _nesVideo ? 0 : 0xff, packedBytes());
+                    memset(_snapshot, whiteFill(), packedBytes());
                     xSemaphoreGive(_mutex);
                     _coreFault = !ok;
                     if (ok) { resumeGame(); return; }
@@ -524,7 +638,13 @@ void AppPaperboy::resetFrameTiming() {
     // Opening a game or entering the safety fallback waits only for current
     // emulation, never for a VSYNC while holding this mutex.
     xSemaphoreTake(_mutex, portMAX_DELAY);
+#if INKADE_INKBOY_VIDEO
+    // InkBoy: the emulator keeps its own 59.7 fps clock; the display samples
+    // the newest finished frame on its 33.3 ms image clock.
+    _scanSynchronized = false;
+#else
     _scanSynchronized = _videoEnabled;
+#endif
     _frameClock.reset(_producedSequence,_gamePeriodUs);
     _requestedFrame = _frameClock.target();
     xSemaphoreGive(_mutex);
@@ -598,9 +718,18 @@ void AppPaperboy::update() {
     if (_failed.exchange(false)) {
         _coreFault = true;
         _message = inkConsoleError();
-        Serial.printf("Ink Boy stopped: %s\n", _message.c_str());
+        Serial.printf("Inkade stopped: %s\n", _message.c_str());
         pauseGame();
     }
+    // A Bluetooth gamepad drives the game directly while playing, and
+    // navigates menus (key actions) otherwise.
+    GamepadMgr& pad = GamepadMgr::getInstance();
+    pad.setRawMode(_playing);
+    const uint16_t padButtons = _playing ? pad.buttons() : 0;
+    constexpr uint16_t SELECT_START = HidGamepad::PAD_SELECT | HidGamepad::PAD_START;
+    const bool padHome = (padButtons & HidGamepad::PAD_HOME) || (padButtons & SELECT_START) == SELECT_START;
+    if (padHome && !_padHomeHeld) { _padHomeHeld = true; back(); return; }  // Home pauses
+    _padHomeHeld = padHome;
     if (!_playing) return;
     InputMgr::TouchPoint points[5];
     uint8_t count = InputMgr::getInstance().heldTouches(points);
@@ -614,6 +743,10 @@ void AppPaperboy::update() {
     if (digitalRead(PIN_BUTTON_UP) == LOW) buttons |= 1;
     if (digitalRead(PIN_BUTTON_DOWN) == LOW) buttons |= 2;
 #endif
+    // Pad: Game Boy buttons in the same bit order; X and Y double as A and B.
+    buttons |= padButtons & 0xFF;
+    if (padButtons & HidGamepad::PAD_X) buttons |= HidGamepad::PAD_A;
+    if (padButtons & HidGamepad::PAD_Y) buttons |= HidGamepad::PAD_B;
     _buttons = buttons;
     if (buttons) BatteryMgr::getInstance().resetIdleTimer();
     if (millis() - _lastStats >= 5000) {
@@ -621,15 +754,15 @@ void AppPaperboy::update() {
         const unsigned frames = _frames.exchange(0);
         const unsigned drawn = _drawnFrames.exchange(0);
         const uint32_t work = _emulationUs.exchange(0), packing = _packingUs.exchange(0), slow = _overBudgetFrames.exchange(0);
-        Serial.printf("Ink Boy %dx %s: emulator %.1f fps; rendered %.1f fps; core %.2f + pack %.2f ms (%u slow); panel %.1f scans/s; handoff %.2f ms; drive %.2f ms\n",
+        Serial.printf("Inkade %dx %s: emulator %.1f fps; rendered %.1f fps; core %.2f + pack %.2f ms (%u slow); panel %.1f scans/s; handoff %.2f ms; drive %.2f ms\n",
                       _nesVideo ? NesViewport::SCALE : GameViewport::SCALE, modeLabel(), frames/seconds, drawn/seconds,
                       frames ? work/(1000.f*frames) : 0, frames ? packing/(1000.f*frames) : 0, slow, _updates/seconds,
                       _regularUpdates ? _renderUs / (1000.f * _regularUpdates) : 0,
                       _regularUpdates ? _refreshUs / (1000.f * _regularUpdates) : 0);
-        Serial.printf("Ink Boy frame sync: %s; fresh %u; repeated %u; skipped %u; maintenance %u; frame %u\n",
+        Serial.printf("Inkade frame sync: %s; fresh %u; repeated %u; skipped %u; maintenance %u; frame %u\n",
                       _videoEnabled ? "scan-boundary" : "native-clock fallback", _presentations.fresh,
                       _presentations.repeated, _presentations.skipped, _presentations.maintenance, _snapshotSequence);
-        Serial.printf("Ink Boy presentation: %.1f distinct frames/s\n",_presentations.fresh/seconds);
+        Serial.printf("Inkade presentation: %.1f distinct frames/s\n",_presentations.fresh/seconds);
         _presentations.clearCounts();
         _renderUs = _refreshUs = _regularUpdates = 0;
         _updates = 0; _lastStats = millis();
@@ -638,7 +771,7 @@ void AppPaperboy::update() {
 
 void AppPaperboy::paintGame() {
     auto& d = DisplayMgr::getInstance().getDisplay();
-    d.fillScreen(GxEPD_WHITE);
+    d.setFullWindow(); d.fillScreen(GxEPD_WHITE);
     label(d, "< Pause / saves", 20, 24);
     label(d, inkConsoleName(), PAUSE.systemLabelX, 24, 1);
     InkBoyUi::draw(d,inkConsoleSystem());
@@ -646,7 +779,7 @@ void AppPaperboy::paintGame() {
 
 void AppPaperboy::paintPause() {
     auto& d = DisplayMgr::getInstance().getDisplay();
-    d.setGameMode(false); d.fillScreen(GxEPD_WHITE);
+    d.setGameMode(false); d.setFullWindow(); d.fillScreen(GxEPD_WHITE);
     label(d, "< Resume game", 20, 24);
     label(d, "Game saves", 20, 85, 3);
     auto button = [&](const String& text, int x, int y, int w, int h) {
@@ -672,23 +805,28 @@ void AppPaperboy::paintPause() {
         button("Save & exit to ROM list",p.left,p.exitY,p.width,p.exitH);
         button("Restart game",p.left,p.restartY,p.width,p.restartH);
         label(d,_message,p.left,p.messageY);
+#if defined(BOARD_SEEED_XIAO_ESP32S3)
+        label(d,"Gamepad A: resume   B: save & exit",p.left,p.noteY);
+#else
         label(d,"Auto resume saves on exit / sleep.",p.left,p.noteY);
+#endif
     }
     d.refresh(false);
 }
 
 void AppPaperboy::draw() {
     auto& d = DisplayMgr::getInstance().getDisplay();
+#if INKADE_INKBOY_VIDEO
+    if (_screen == SCREEN_TEST) { drawTest(); return; }
+    if (_playing) { drawStickyGame(); return; }
+#endif
     if (_playing) {
         bool repaint = _redraw || _forceClean;
         if (_redraw) { paintGame(); d.refresh(false); _redraw = false; _forceClean = true; }
         bool clean = _forceClean; // No timer: tap the game window to clean it.
         // Wait BEFORE latching the target, so a frame that finishes near the
         // deadline can still be used. The old snapshot's DMA is already drained.
-        if (_videoEnabled && !clean && _lastScanStarted) {
-            const uint32_t elapsed = micros() - _lastScanStarted;
-            if (elapsed < 16667) delayMicroseconds(16667 - elapsed);
-        }
+        if (_videoEnabled) waitForScanSlot(clean);
         uint32_t started = micros();
         if (_frameReady.load()) {
             xSemaphoreTake(_frameMutex, portMAX_DELAY);
@@ -708,7 +846,8 @@ void AppPaperboy::draw() {
         d.setGameFrame(_snapshot);
         if (!_videoEnabled && !repaint && !clean) return;
         uint32_t rendered = micros();
-        _lastScanStarted = micros();
+        const uint32_t shownBefore = _snapshotSequence;
+        scanStarted(clean);
         // Software VSYNC: latch this complete target, then let the other core
         // prepare NEXT scan's frame while this scan owns its immutable snapshot.
         // Maintenance is explicitly paused/rebased after the blocking refresh.
@@ -717,10 +856,11 @@ void AppPaperboy::draw() {
             // A missing video-state allocation must not strand the user.
             _videoEnabled = false; _forceClean = true;
             resetFrameTiming();
-            Serial.println("Ink Boy: video unavailable, reverting to four-pass mode");
+            Serial.println("Inkade: video unavailable, reverting to four-pass mode");
             return;
         }
         _presentations.observe(_snapshotSequence, _snapshotValid, clean);
+        countFps(_snapshotSequence != shownBefore);
         if (clean) {
             // The final reset scan just drained; give the primed next frame a
             // full period before latching again instead of immediately repeating.
@@ -740,7 +880,11 @@ void AppPaperboy::draw() {
     if (!_redraw) return;
     _redraw = false;
     if (_paused) { paintPause(); return; }
+#if INKADE_INKBOY_VIDEO
+    if (_screen == SCREEN_SETTINGS) { paintSettings(); return; }
+#endif
     d.setGameMode(false);
+    d.setFullWindow();
     InkBoyLibraryUi::header(d,_systemMask,_selectedSystem,_filtered.size());
     for (unsigned row=0; row<InkBoyLibraryUi::ROWS; ++row) {
         unsigned index=_page*InkBoyLibraryUi::ROWS+row;
@@ -752,13 +896,27 @@ void AppPaperboy::draw() {
         bool resume=EbookFS.exists(statePath+".state0")||EbookFS.exists(statePath+".state0.bak");
         String detail=ext+(resume?"  /  RESUME SAVED GAME":"  /  TAP TO PLAY");
         InkBoyLibraryUi::card(d,row,name.c_str(),detail.c_str());
+        if (_cursorShown && index == _cursor) {
+            // Key/gamepad selection: a heavier frame around the card.
+            const int y = InkBoyLibraryUi::ROW_Y + row * InkBoyLibraryUi::ROW_STEP;
+            for (int inset = 1; inset <= 3; ++inset)
+                d.drawRoundRect(InkBoyLibraryUi::LEFT + inset, y + inset, InkBoyLibraryUi::CONTENT_W - 2 * inset,
+                                InkBoyLibraryUi::ROW_H - 2 * inset, 9, GxEPD_BLACK);
+        }
     }
     if(_filtered.empty()) {
         label(d,"Your next adventure starts here.",40,365,2);
+#if defined(BOARD_SEEED_XIAO_ESP32S3)
+        label(d,"Upload ROMs from InkDeck's web interface",40,420,1);
+        label(d,"(Games tab); they are kept in internal storage.",40,443,1);
+#else
         label(d,"Copy ROMs to /roms on the MicroSD card",40,420,1);
         label(d,"or upload them from InkDeck's web interface.",40,443,1);
+#endif
         label(d,"Game Boy  .gb / .gbc",40,512,2);
+#if !INKADE_INKBOY_VIDEO
         label(d,"NES       .nes",40,552,2);
+#endif
     }
     InkBoyLibraryUi::footer(d,_page,(_filtered.size()+InkBoyLibraryUi::ROWS-1)/InkBoyLibraryUi::ROWS,_message.c_str());
     d.refresh(false);

@@ -4,12 +4,13 @@
 #include <Fonts/FreeSansBoldOblique18pt7b.h>
 #include "GameViewport.h"
 #include "NesViewport.h"
+#include "Config.h"
 #include "RomFormat.h"
 
 // Shared drawing + hit geometry. Static decoration is painted only on entry /
 // resume; the video driver touches only the system's game window.
 namespace InkBoyUi {
-#if defined(BOARD_SEEED_STICKY)
+#if INKADE_INKBOY_VIDEO
 // 480x800 portrait: the 320x288 game window sits in a bezel at the top and
 // the controls fill the lower half.
 constexpr int DPAD_X = 110, DPAD_Y = 520, DPAD_HALF = 78, DPAD_ARM = 26;
@@ -115,7 +116,17 @@ inline void draw(Adafruit_GFX& d,InkSystem system=INK_SYSTEM_GB) {
         d.drawPixel(x,y,gray(x,y,12));
     }
     d.drawRect(gx-1,gy-1,gw+2,gh+2,BLACK);
-    centeredText(d,"Ink Boy",TITLE_X,nes ? 550 : TITLE_Y,&FreeSansBoldOblique18pt7b);
+    centeredText(d,"Inkade",TITLE_X,nes ? 550 : TITLE_Y,&FreeSansBoldOblique18pt7b);
+#if defined(BOARD_SEEED_XIAO_ESP32S3)
+    // Book32 has no touch screen: a Bluetooth gamepad plays.
+    centeredText(d,"Bluetooth gamepad",240,470,&FreeSansBold12pt7b);
+    centeredText(d,"D-pad and A / B / Select / Start as on a Game Boy",240,512,nullptr,1);
+    centeredText(d,"X and Y also work as A and B",240,532,nullptr,1);
+    centeredText(d,"Home, or Select + Start: pause and saves",240,552,nullptr,1);
+    centeredText(d,"Hold the side button to pause without a gamepad",240,592,nullptr,1);
+    d.setFont(nullptr); d.setTextSize(1); d.setTextWrap(true);
+    return;
+#endif
     d.fillRoundRect(DPAD_X-DPAD_HALF,padY-DPAD_ARM,2*DPAD_HALF+1,2*DPAD_ARM+1,5,BLACK);
     d.fillRoundRect(DPAD_X-DPAD_ARM,padY-DPAD_HALF,2*DPAD_ARM+1,2*DPAD_HALF+1,5,BLACK);
     d.fillCircle(A_X,A_Y+offset,AB_RADIUS,BLACK); d.fillCircle(B_X,B_Y+offset,AB_RADIUS,BLACK);

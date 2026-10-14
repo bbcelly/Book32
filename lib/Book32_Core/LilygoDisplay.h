@@ -27,6 +27,10 @@ public:
     // returns and releases it only after setGameMode(false).
     void setGameFrame(const uint8_t* packed) { _gameImage = packed; }
     bool refreshGame(bool clean, bool smooth);
+    // Grayscale sleep cover: shows the canvas (drawn, not yet refreshed) with
+    // `gray` (8-bit, 0 black .. 255 white, w x h at rotated x, y; overwritten)
+    // in 16 gray levels, as one full refresh.
+    bool drawGrayCover(uint8_t* gray, int x, int y, int w, int h);
 private:
     FASTEPD _panel;
     bool _ready = false, _partial = false, _gaming = false;
@@ -38,6 +42,7 @@ private:
     bool _videoRunning = false, _videoReset = true;
     bool _videoAvailable = false;
     bool _nesGame = false;
+    bool _forceFull = false;  // the panel buffers hold a 4-bit image
     void stopVideo();
     void checkResult(int result);
     void copyRegion(const BB_RECT& rect);

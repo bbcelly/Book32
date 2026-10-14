@@ -47,5 +47,5 @@ int main() {
     printf("P5\n%d %d\n255\n",canvas.width(),canvas.height());
     for(int y=0;y<canvas.height();++y) for(int x=0;x<canvas.width();++x)
         putchar(canvas.getPixel(x,y) ? 255 : 0);
-    fprintf(stderr,"Ink Boy UI PASS: buttons, diagonals, multitouch masks, non-overlap, game-window isolation\n");
+    fprintf(stderr,"Inkade UI PASS: buttons, diagonals, multitouch masks, non-overlap, game-window isolation\n");
 }

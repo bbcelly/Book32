@@ -1,5 +1,5 @@
 const ESPTOOL_MODULE_URL = 'https://unpkg.com/esptool-js@0.6.1/bundle.js';
-const RELEASE_VERSION = '1.3.9';
+const RELEASE_VERSION = '1.4.0';
 
 const profiles = {
   book32: {
@@ -25,7 +25,7 @@ const profiles = {
     name: 'LILYGO T5 E-Paper S3 Pro Lite — H752-01',
     manifest: `manifest-lilygo-update-v${RELEASE_VERSION}.json`,
     flashSize: '16MB',
-    description: 'Experimental H752-01 / Pro Lite build with eReader, Todo, Klipper, Settings and Ink Boy for Game Boy, Game Boy Color and NES. No game audio. Not compatible with the older H752.',
+    description: 'Experimental H752-01 / Pro Lite build with eReader, Todo, Klipper, Settings and Inkade for Game Boy, Game Boy Color and NES. No game audio. Not compatible with the older H752.',
     after: 'If it remains in download mode, press RESET. Open Settings for Wi-Fi and frontlight brightness. Upload your own legally obtained ROMs through the Game ROMs web tab, or copy them into /roms on a FAT32 MicroSD card. Use Save & exit before removing the card. Press BOOT to wake from sleep.'
   }
 };

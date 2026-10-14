@@ -1,0 +1,177 @@
+#pragma once
+#include <stdint.h>
+#include <string.h>
+
+// Bluetooth LE gamepads describe their input reports with a HID report
+// descriptor (the "report map"). This parses one and decodes input reports into
+// a fixed set of buttons. Hardware-free, so host tests can exercise it.
+namespace HidGamepad {
+
+// Decoded state. D-pad bits match Inkade's Game Boy button mask.
+enum : uint16_t {
+    PAD_A = 0x0001, PAD_B = 0x0002, PAD_SELECT = 0x0004, PAD_START = 0x0008,
+    PAD_RIGHT = 0x0010, PAD_LEFT = 0x0020, PAD_UP = 0x0040, PAD_DOWN = 0x0080,
+    PAD_X = 0x0100, PAD_Y = 0x0200, PAD_L = 0x0400, PAD_R = 0x0800,
+    PAD_HOME = 0x1000,
+};
+
+// One input value inside a report.
+struct Field {
+    uint8_t reportId;
+    uint16_t bitOffset;  // after the report ID byte
+    uint8_t bitSize;
+    uint16_t usagePage, usage;
+    int32_t logicalMin, logicalMax;
+};
+
+constexpr int MAX_FIELDS = 64;
+constexpr uint16_t PAGE_DESKTOP = 0x01, PAGE_BUTTON = 0x09, PAGE_CONSUMER = 0x0C, PAGE_SIMULATION = 0x02;
+constexpr uint16_t USAGE_X = 0x30, USAGE_Y = 0x31, USAGE_HAT = 0x39;
+constexpr uint16_t USAGE_DPAD_UP = 0x90, USAGE_DPAD_DOWN = 0x91, USAGE_DPAD_RIGHT = 0x92, USAGE_DPAD_LEFT = 0x93;
+
+// Gamepad button numbers (HID button page usages, 1-based) for each pad
+// button. Most Bluetooth LE gamepads in Android/"gamepad" mode, and Xbox
+// controllers, use: 1 A, 2 B, 4 X, 5 Y, 7 L, 8 R, 11 Select, 12 Start, 13 Home.
+struct ButtonMap { uint8_t a, b, x, y, l, r, select, start, home; };
+constexpr ButtonMap ANDROID_MAP = {1, 2, 4, 5, 7, 8, 11, 12, 13};
+
+class Descriptor {
+public:
+    Field fields[MAX_FIELDS];
+    int count = 0;
+    bool usesReportIds = false;
+
+    bool parse(const uint8_t* data, size_t length) {
+        count = 0;
+        usesReportIds = false;
+        struct Globals { uint16_t page; int32_t min, max; uint8_t size, id; uint16_t reportCount; };
+        Globals g = {0, 0, 0, 0, 0, 0}, stack[4];
+        int depth = 0;
+        uint16_t usages[16]; int usageCount = 0;
+        uint32_t usageMin = 0, usageMax = 0; bool range = false;
+        uint16_t offsets[256] = {};  // input bits per report ID
+        size_t i = 0;
+        while (i < length) {
+            const uint8_t prefix = data[i++];
+            if (prefix == 0xFE) {  // long item: skip
+                if (i + 1 >= length) return false;
+                i += 2 + data[i];
+                continue;
+            }
+            const uint8_t size = (prefix & 3) == 3 ? 4 : (prefix & 3);
+            if (i + size > length) return false;
+            uint32_t u = 0;
+            for (uint8_t b = 0; b < size; ++b) u |= uint32_t(data[i + b]) << (8 * b);
+            int32_t s = size == 1 ? int8_t(u) : size == 2 ? int16_t(u) : int32_t(u);
+            i += size;
+            const uint8_t type = (prefix >> 2) & 3, tag = prefix >> 4;
+            if (type == 1) {  // global
+                switch (tag) {
+                case 0x0: g.page = u; break;
+                case 0x1: g.min = s; break;
+                case 0x2: g.max = (g.min >= 0 && s < 0) ? int32_t(u) : s; break;  // unsigned max
+                case 0x7: g.size = u; break;
+                case 0x8: g.id = u; usesReportIds = true; break;
+                case 0x9: g.reportCount = u; break;
+                case 0xA: if (depth < 4) stack[depth++] = g; break;
+                case 0xB: if (depth > 0) g = stack[--depth]; break;
+                }
+            } else if (type == 2) {  // local
+                if (tag == 0x0 && usageCount < 16) usages[usageCount++] = uint16_t(u);
+                if (tag == 0x1) { usageMin = u & 0xFFFF; range = true; }
+                if (tag == 0x2) { usageMax = u & 0xFFFF; range = true; }
+            } else if (type == 0) {  // main
+                if (tag == 0x8) {  // input
+                    uint16_t& offset = offsets[g.id];
+                    const bool constant = u & 1;
+                    for (uint16_t n = 0; n < g.reportCount; ++n) {
+                        if (!constant && count < MAX_FIELDS && g.size && g.size <= 32) {
+                            uint16_t usage = 0;
+                            if (range && usageMin + n <= usageMax) usage = usageMin + n;
+                            else if (usageCount) usage = usages[n < usageCount ? n : usageCount - 1];
+                            else if (range) usage = usageMax;
+                            fields[count++] = {g.id, offset, g.size, g.page, usage, g.min, g.max};
+                        }
+                        offset += g.size;
+                    }
+                }
+                usageCount = 0; range = false; usageMin = usageMax = 0;
+            }
+        }
+        return count > 0;
+    }
+};
+
+inline uint32_t bits(const uint8_t* data, size_t length, uint16_t offset, uint8_t size) {
+    uint32_t value = 0;
+    for (uint8_t b = 0; b < size; ++b) {
+        const uint16_t bit = offset + b;
+        if (bit / 8 >= length) break;
+        if (data[bit / 8] & (1 << (bit % 8))) value |= 1u << b;
+    }
+    return value;
+}
+
+// Decodes one input report (`data` excludes the report ID, which BLE carries
+// in the characteristic's Report Reference instead). Returns the pad buttons.
+inline uint16_t decode(const Descriptor& d, uint8_t reportId, const uint8_t* data, size_t length,
+                       const ButtonMap& map = ANDROID_MAP, uint32_t* rawButtons = nullptr) {
+    uint16_t pad = 0;
+    uint32_t buttons = 0;
+    for (int f = 0; f < d.count; ++f) {
+        const Field& field = d.fields[f];
+        if (d.usesReportIds && field.reportId != reportId) continue;
+        uint32_t raw = bits(data, length, field.bitOffset, field.bitSize);
+        int32_t value = raw;
+        if (field.logicalMin < 0 && field.bitSize < 32 && (raw & (1u << (field.bitSize - 1))))
+            value = int32_t(raw | (~0u << field.bitSize));  // sign-extend
+        if (field.usagePage == PAGE_BUTTON) {
+            if (value && field.usage >= 1 && field.usage <= 32) buttons |= 1u << (field.usage - 1);
+        } else if (field.usagePage == PAGE_DESKTOP && field.usage == USAGE_HAT) {
+            // Hat: logicalMin = up, then clockwise in eighths; out of range = centred.
+            const int32_t h = value - field.logicalMin;
+            const int32_t span = field.logicalMax - field.logicalMin + 1;
+            if (h >= 0 && h < span) {
+                const int dir = span == 4 ? h * 2 : h;  // 4-way hats count in quarters
+                static const uint16_t HAT[8] = {PAD_UP, PAD_UP | PAD_RIGHT, PAD_RIGHT, PAD_RIGHT | PAD_DOWN,
+                                                PAD_DOWN, PAD_DOWN | PAD_LEFT, PAD_LEFT, PAD_LEFT | PAD_UP};
+                if (dir >= 0 && dir < 8) pad |= HAT[dir];
+            }
+        } else if (field.usagePage == PAGE_DESKTOP && (field.usage == USAGE_X || field.usage == USAGE_Y)) {
+            // Left stick (or an axis-type d-pad): beyond 40% of travel counts.
+            const int32_t lo = field.logicalMin, hi = field.logicalMax;
+            if (hi > lo) {
+                const int32_t mid = lo + (hi - lo) / 2, dead = (hi - lo) * 2 / 10;
+                if (value < mid - dead) pad |= field.usage == USAGE_X ? PAD_LEFT : PAD_UP;
+                if (value > mid + dead) pad |= field.usage == USAGE_X ? PAD_RIGHT : PAD_DOWN;
+            }
+        } else if (field.usagePage == PAGE_DESKTOP && value) {
+            if (field.usage == USAGE_DPAD_UP) pad |= PAD_UP;
+            if (field.usage == USAGE_DPAD_DOWN) pad |= PAD_DOWN;
+            if (field.usage == USAGE_DPAD_RIGHT) pad |= PAD_RIGHT;
+            if (field.usage == USAGE_DPAD_LEFT) pad |= PAD_LEFT;
+        } else if (field.usagePage == PAGE_CONSUMER && value) {
+            // Android-mode pads send Back / Home / Menu as consumer keys.
+            if (field.bitSize > 1) {  // an array of usage codes
+                if (value == 0x224) pad |= PAD_SELECT;       // AC Back
+                if (value == 0x223 || value == 0x40) pad |= PAD_HOME;  // AC Home / Menu
+            } else {
+                if (field.usage == 0x224) pad |= PAD_SELECT;
+                if (field.usage == 0x223 || field.usage == 0x40) pad |= PAD_HOME;
+            }
+        }
+    }
+    auto has = [&](uint8_t n) { return n && (buttons & (1u << (n - 1))); };
+    if (has(map.a)) pad |= PAD_A;
+    if (has(map.b)) pad |= PAD_B;
+    if (has(map.x)) pad |= PAD_X;
+    if (has(map.y)) pad |= PAD_Y;
+    if (has(map.l)) pad |= PAD_L;
+    if (has(map.r)) pad |= PAD_R;
+    if (has(map.select)) pad |= PAD_SELECT;
+    if (has(map.start)) pad |= PAD_START;
+    if (has(map.home)) pad |= PAD_HOME;
+    if (rawButtons) *rawButtons = buttons;
+    return pad;
+}
+}  // namespace HidGamepad

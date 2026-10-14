@@ -5,8 +5,9 @@
 #if defined(BOARD_LILYGO_T5S3_PRO)
 #include <Wire.h>
 #include "LilygoControls.h"
-#include "AppMgr.h"
 #endif
+#include "AppMgr.h"
+#include "GamepadMgr.h"
 
 #if defined(BOARD_SEEED_STICKY)
 InputMgr::InputMgr() : btn(PIN_BUTTON, true, true),
@@ -65,7 +66,70 @@ void InputMgr::init() {
 #endif
 }
 
+void InputMgr::pollSerialCommands() {
+    while (Serial.available()) {
+        const char ch = Serial.read();
+        if (ch != '\n' && ch != '\r') {
+            if (_serialLine.length() < 48) _serialLine += ch;
+            continue;
+        }
+        if (_serialLine.isEmpty()) continue;
+        int x = 0, y = 0, ms = 0;
+        (void)x; (void)y; (void)ms;
+        const char* line = _serialLine.c_str();
+        if (GamepadMgr::getInstance().serialCommand(line)) {
+        }
+#if BOOK32_HAS_TOUCH
+        else if (sscanf(line, "tap %d %d", &x, &y) == 2) {
+            enqueueTouch(x, y);
+            Serial.printf("Serial: tap %d %d\n", x, y);
+        }
+#endif
+#if BOOK32_HAS_INKBOY
+        else if (sscanf(line, "hold %d %d %d", &x, &y, &ms) == 3) {
+            _injected = {uint16_t(x), uint16_t(y)};
+            _injectedUntil = millis() + ms;
+            Serial.printf("Serial: hold %d %d for %d ms\n", x, y, ms);
+        }
+#endif
+        else if (!strncmp(line, "key ", 4)) {
+            // Board-button actions, for testing without touching the device.
+            const char* k = line + 4;
+            const InputAction a = !strcmp(k, "next") ? INPUT_NEXT : !strcmp(k, "prev") ? INPUT_PREV
+                                : !strcmp(k, "select") ? INPUT_SELECT : !strcmp(k, "back") ? INPUT_BACK
+                                : !strcmp(k, "home") ? INPUT_HOME : INPUT_NONE;
+            if (a != INPUT_NONE) enqueueAction(a);
+            Serial.printf("Serial: key %s\n", k);
+        }
+        else if (!strcmp(line, "cover")) {
+            _serialLine = "";
+            Serial.printf("Serial: cover %s\n", BatteryMgr::getInstance().previewSleepCover() ? "drawn" : "unavailable");
+            return;
+        }
+        else if (!strcmp(line, "sleep")) {
+            _serialLine = "";
+            Serial.println("Serial: sleep");
+            BatteryMgr::getInstance().enterIdleSleep();
+            return;
+        }
+        else if (serialHandler) serialHandler(line);
+        _serialLine = "";
+    }
+}
+
 void InputMgr::update() {
+    pollSerialCommands();
+    // Bluetooth gamepad: menu actions for new presses (games read it raw).
+    GamepadMgr::getInstance().pollActions([this](int action) {
+        BatteryMgr::getInstance().resetIdleTimer();
+        switch (action) {
+        case 1: enqueueAction(INPUT_NEXT); break;
+        case 2: enqueueAction(INPUT_PREV); break;
+        case 3: enqueueAction(INPUT_SELECT); break;
+        case 4: enqueueAction(INPUT_BACK); break;
+        case 5: enqueueAction(INPUT_HOME); break;
+        }
+    });
 #if defined(BOARD_LILYGO_T5S3_PRO)
     LilygoControls::instance().apply();
     pollFrontlightButton();
@@ -83,14 +147,13 @@ void InputMgr::update() {
 
     InputEvent event;
     while (dequeueEvent(event)) {
-#if defined(BOARD_LILYGO_T5S3_PRO)
+        // Home (LILYGO front key, gamepad Home) returns to the main menu.
         if (!event.touch && event.action == INPUT_HOME) {
             auto& apps = AppMgr::getInstance();
             if (apps.getCurrentApp() && strcmp(apps.getCurrentApp()->getName(), "Main Menu") != 0)
                 apps.switchTo(0);
             continue;
         }
-#endif
         if (!event.touch && event.action == INPUT_POWER_SLEEP) {
             BatteryMgr::getInstance().enterIdleSleep();
             return;
@@ -304,9 +367,9 @@ void InputMgr::mappedButton(bool front) {
 
 #if BOOK32_HAS_INKBOY
 uint8_t InputMgr::heldTouches(TouchPoint* points) const {
-    if (millis() - _pointsAt > 250) return 0;
-    const uint8_t count = _pointCount;
+    uint8_t count = millis() - _pointsAt > 250 ? 0 : _pointCount;
     for (uint8_t i = 0; i < count; ++i) points[i] = _points[i];
+    if (count < 5 && long(_injectedUntil - millis()) > 0) points[count++] = _injected;
     return count;
 }
 #endif

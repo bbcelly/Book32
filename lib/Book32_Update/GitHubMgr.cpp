@@ -71,7 +71,7 @@ UpdateInfo GitHubMgr::checkUpdate(const char* currentVersion) {
     UpdateInfo info = {false, "", "", "", "", false, false};
 #if defined(BOARD_LILYGO_T5S3_PRO)
     // Declared before the client: its lease is released only AFTER TLS/socket
-    // destruction on every return path. Ink Boy waits for these owners.
+    // destruction on every return path. Inkade waits for these owners.
     NetworkWork::Lease network;
     if (!network) return info;
     WiFiClientSecure client;

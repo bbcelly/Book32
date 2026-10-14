@@ -23,12 +23,18 @@ public:
     int stride() const { return _stride; }
     void clear();
     void draw(Book32Display& display, int x, int y) const;
+    // Cover decodes also keep the 8-bit gray image (0 black .. 255 white,
+    // width x height) the 1-bit picture was dithered from, for displays that
+    // can show gray directly.
+    uint8_t* gray() { return _gray; }
+    void keepGray(uint8_t* gray);
 
     int width = 0;
     int height = 0;
 
 private:
     uint8_t* _pixels = nullptr;
+    uint8_t* _gray = nullptr;
     int _stride = 0;
 };
 

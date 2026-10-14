@@ -5,11 +5,12 @@
 #include <Adafruit_GFX.h>
 #include <bb_epaper.h>
 #include <SPI.h>
+#include "InkBoyVideo.h"
 
 // GFX-compatible adapter for the Sticky's native-landscape SSD1677 panel.
 // InkDeck keeps one 800x480 framebuffer, so existing GFX font and bitmap code
 // can run unchanged while bb_epaper handles the panel-specific waveform.
-class StickyDisplay : public GFXcanvas1 {
+class StickyDisplay : public GFXcanvas1, private InkBoyPanel {
 public:
     StickyDisplay();
 
@@ -23,15 +24,31 @@ public:
     void clearScreen(uint8_t value = 0xFF);
     void hibernate();
 
-    // Ink Boy fast video. The game window is driven directly with a short
-    // register waveform and per-pixel drive budgets; the rest of the screen
-    // is left untouched. Same interface as LilygoDisplay.
+    // Inkade fast video: a port of kuslota/InkBoy's display drive
+    // (InkBoyDrive.h) on the game window; the rest of the screen is untouched.
     void setGameMode(bool active);
     void setNesGame(bool) {}
-    // Borrowed packed frame (GameViewport layout); caller keeps it alive
-    // until the next setGameFrame or setGameMode(false).
-    void setGameFrame(const uint8_t* packed) { _gameImage = packed; }
-    bool refreshGame(bool clean, bool smooth);
+    // Borrowed frame, kept alive by the caller until the next setGameFrame or
+    // setGameMode(false): dithered, the packed window (InkBoyDrive::packDithered);
+    // grayscale, the 2-bit source (InkBoyDrive::packSource).
+    void setGameFrame(const uint8_t* frame) { _video.setFrame(frame); }
+    // One update (fast_display_update): waits out the drive period, then scans.
+    bool refreshGame(bool = false, bool = true) { return _video.refresh(); }
+    // Settings, applied the next time game mode starts.
+    void setGameSettings(const InkBoyDrive::Settings& settings) { _video.setSettings(settings); }
+    // Nonzero while drive remains (pixels, or 1 for the HOLD ending).
+    unsigned gamePending() const { return _video.pending(); }
+    // Sleep until the next scan may start (fast_display_wait_slot).
+    void gameWaitSlot(int64_t imageDeadline) { _video.waitSlot(imageDeadline); }
+    // Idle: analog supply off; RAM and waveform are kept.
+    void gamePowerOff() { _video.powerOff(); }
+
+    // Grayscale still image (StickyGrayImage): `pulses` holds each pixel's
+    // black pulse count, w x h at portrait (x, y). Call right after a full
+    // refresh that left that area white. The canvas is left unchanged.
+    bool drawGrayImage(const uint8_t* pulses, int x, int y, int w, int h);
+    // The same from 8-bit gray (0 black .. 255 white), which is overwritten.
+    bool drawGrayCover(uint8_t* gray, int x, int y, int w, int h);
 
 private:
     BBEPAPER _panel;
@@ -44,21 +61,18 @@ private:
     bool _gaming = false;
     bool _gamePowered = false;
     uint8_t _gameRotation = 3;
-    const uint8_t* _gameImage = nullptr;
-    uint32_t* _gameTarget = nullptr;  // target shown by the last update
-    uint32_t* _gameCount = nullptr;   // 3 bit-planes of remaining pulses
-    uint8_t* _gameOld = nullptr;      // "old" RAM plane for the next update
-    uint16_t _gameIdleCalls = 0;      // refreshes since the picture last changed
-    bool _gameAutoCleaned = false;    // one automatic clean per still picture
-    uint8_t _pulseFrames = 0;         // waveform frames per pulse (5 ms each)
-    uint8_t _budgetWhite = 0;         // pulses for a pixel turning white
-    uint8_t _budgetBlack = 0;         // pulses for a pixel turning black
-    bool allocateGame();
-    void gameCommand(uint8_t command, const uint8_t* data = nullptr, size_t length = 0);
-    void gameCommandByte(uint8_t command, uint8_t value) { gameCommand(command, &value, 1); }
-    void gameData(const uint8_t* data, size_t length);
+    InkBoyVideo _video;
+    // Commands go through an allowlist checked at compile time.
+    template <uint8_t Command> void gameCommand(const uint8_t* data = nullptr, size_t length = 0);
+    template <uint8_t Command> void gameCommandByte(uint8_t value) { gameCommand<Command>(&value, 1); }
+    template <uint8_t Value> void gameUpdate();
+    void gameSend(uint8_t command, const uint8_t* data, size_t length);
     void gameWindow();
-    void gameWaitBusy();
+    bool gameWaitBusy();
+    // InkBoyPanel
+    bool videoStart(bool gray) override;
+    bool videoScan(const uint8_t* oldPlane, const uint8_t* newPlane) override;
+    void videoPowerOff() override;
 
     void flush();
 };

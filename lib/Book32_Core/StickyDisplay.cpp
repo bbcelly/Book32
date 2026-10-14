@@ -4,37 +4,49 @@
 
 #include "Config.h"
 #include "GameViewport.h"
+#include "InkBoyDrive.h"
+#include <esp_timer.h>
+#include "StickyGrayImage.h"
+#include <algorithm>
 #include <cstring>
 #include <esp_heap_caps.h>
 
 namespace {
 constexpr size_t FRAME_BYTES = ((800 + 7) / 8) * 480;
 
-// --- Ink Boy fast video -----------------------------------------------------
-// Measured on hardware: one waveform frame at frame-rate setting 0x88 lasts
-// 5 ms, and display-only updates (0x22 = 0x0C) skip the ~82 ms analog power-up.
-// A pulse is GAME_PULSE_FRAMES frames (25 ms). A pixel needs about 40 ms of
-// drive to finish a transition. While a scene scrolls, pixels change again
-// within a few updates, so fewer, stronger pulses keep moving scenes readable.
-// Chosen by photographing Pokemon/Super Mario Land scrolling at 10/15/20/25/30
-// ms pulses: 25 ms stayed at 30+ updates/s while walking and was clearest;
-// 30 ms fell to 25 updates/s and disturbed emulator timing.
+// --- Inkade fast video (port of kuslota/InkBoy, see InkBoyDrive.h) ----------
+// One waveform frame at frame-rate setting 0x88 lasts 5 ms (measured), and
+// display-only updates (0x22 = 0x0C) skip the ~82 ms analog power-up.
+// InkBoy's single active frame drives about 20 ms in dithered mode and about
+// 14 ms in grayscale: 4 and 3 frames here.
 constexpr uint32_t GAME_SPI_HZ = 20000000;
-constexpr uint8_t GAME_PULSE_FRAMES = 5;
 constexpr uint8_t GAME_FRAME_RATE = 0x88;
-// Pulses for each changed pixel (2 x 25 ms = 50 ms of drive). An extra white
-// pulse was tried and left a dark sprite ghost, so both directions match.
-constexpr uint8_t GAME_BUDGET_WHITE = 2;
-constexpr uint8_t GAME_BUDGET_BLACK = 2;
-constexpr uint8_t GAME_CLEAN_PULSES = 4;  // tap-to-clean: reinforce every pixel (100 ms)
+constexpr uint8_t GAME_DITHER_FRAMES = 4;
+constexpr uint8_t GAME_GRAY_FRAMES = 3;
 constexpr size_t GAME_BYTES = GameViewport::PACKED_BYTES;
-constexpr size_t GAME_WORDS = GAME_BYTES / 4;
-static_assert(GAME_BYTES % 4 == 0, "whole 32-bit words");
-// Once the picture has not changed for this many refreshGame calls (about a
-// second), reinforce the whole window once, as tap-to-clean does.
-constexpr uint16_t GAME_AUTO_CLEAN_IDLE_CALLS = 45;
-static_assert(GAME_BUDGET_WHITE >= 1 && GAME_BUDGET_WHITE <= 7 && GAME_BUDGET_BLACK >= 1 &&
-              GAME_BUDGET_BLACK <= 7 && GAME_CLEAN_PULSES <= 7, "3-bit pulse counters");
+static_assert(GAME_BYTES == size_t(InkBoyDrive::PLANE_BYTES), "InkBoy drive uses the game window layout");
+
+// The only SSD1677 commands the game driver may send. Everything here works
+// on volatile registers and RAM; nothing programs OTP or other one-time
+// memory (0x2A VCOM OTP, 0x36 OTP program, 0x37/0x38 OTP registers are
+// excluded). gameCommand<> refuses anything else at compile time.
+constexpr bool gameCommandAllowed(uint8_t command) {
+    return command == 0x11 ||                    // data entry mode
+           command == 0x20 ||                    // master activation
+           command == 0x21 ||                    // display update control 1
+           command == 0x22 ||                    // display update control 2
+           command == 0x24 || command == 0x26 || // new / old image RAM
+           command == 0x32 ||                    // volatile waveform LUT
+           command == 0x3C ||                    // border waveform
+           command == 0x44 || command == 0x45 || // RAM window
+           command == 0x4E || command == 0x4F;   // RAM address
+}
+// Display update control 2 sequences the game driver uses.
+constexpr bool gameUpdateAllowed(uint8_t value) {
+    return value == 0x0C ||  // display only (analog already on)
+           value == 0xCC ||  // clock + analog on, display
+           value == 0x03;    // analog + clock off
+}
 
 // SSD1677 105-byte register waveform (same layout as GxEPD2's SSD1677 drivers):
 // rows LUT0..LUT4 select voltages per phase, then phase timings, then frame
@@ -47,6 +59,12 @@ void buildGameLut(uint8_t lut[105], uint8_t pulseFrames) {
     lut[50 + 3] = pulseFrames;       // group 0 timing: TPA, TPB, TPC, TPD, RP
     for (int i = 100; i < 105; ++i) lut[i] = GAME_FRAME_RATE;
 }
+// Still images: every pixel whose old and new bits differ gets a black pulse,
+// whichever way round bb_epaper's plane writes store black and white.
+void buildBlackPulseLut(uint8_t lut[105], uint8_t pulseFrames) {
+    buildGameLut(lut, pulseFrames);
+    lut[10] = 0x01;                  // LUT1 also VSH1 (black)
+}
 }
 
 StickyDisplay::StickyDisplay() : GFXcanvas1(800, 480), _panel(EP397_800x480) {
@@ -54,9 +72,6 @@ StickyDisplay::StickyDisplay() : GFXcanvas1(800, 480), _panel(EP397_800x480) {
         heap_caps_malloc(FRAME_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!_previousBuffer) _previousBuffer = static_cast<uint8_t*>(malloc(FRAME_BYTES));
     if (_previousBuffer) memset(_previousBuffer, 0xFF, FRAME_BYTES);
-    _pulseFrames = GAME_PULSE_FRAMES;
-    _budgetWhite = GAME_BUDGET_WHITE;
-    _budgetBlack = GAME_BUDGET_BLACK;
 }
 
 void StickyDisplay::init(uint32_t, bool, uint16_t, bool) {
@@ -138,22 +153,9 @@ void StickyDisplay::clearScreen(uint8_t value) {
     flush();
 }
 
-// --- Ink Boy fast video -----------------------------------------------------
+// --- Inkade fast video -----------------------------------------------------
 
-bool StickyDisplay::allocateGame() {
-    if (_gameTarget && _gameCount && _gameOld) return true;
-    // Internal RAM: these are walked every update.
-    auto internal = [](size_t bytes) {
-        void* p = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        return p ? p : heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    };
-    if (!_gameTarget) _gameTarget = static_cast<uint32_t*>(internal(GAME_BYTES));
-    if (!_gameCount) _gameCount = static_cast<uint32_t*>(internal(GAME_BYTES * 3));
-    if (!_gameOld) _gameOld = static_cast<uint8_t*>(internal(GAME_BYTES));
-    return _gameTarget && _gameCount && _gameOld;
-}
-
-void StickyDisplay::gameCommand(uint8_t command, const uint8_t* data, size_t length) {
+void StickyDisplay::gameSend(uint8_t command, const uint8_t* data, size_t length) {
     SPI.beginTransaction(SPISettings(GAME_SPI_HZ, MSBFIRST, SPI_MODE0));
     digitalWrite(SD_CS, HIGH);
     digitalWrite(EPD_DC, LOW);
@@ -165,14 +167,17 @@ void StickyDisplay::gameCommand(uint8_t command, const uint8_t* data, size_t len
     SPI.endTransaction();
 }
 
-void StickyDisplay::gameData(const uint8_t* data, size_t length) {
-    SPI.beginTransaction(SPISettings(GAME_SPI_HZ, MSBFIRST, SPI_MODE0));
-    digitalWrite(SD_CS, HIGH);
-    digitalWrite(EPD_DC, HIGH);
-    digitalWrite(EPD_CS, LOW);
-    SPI.writeBytes(data, length);
-    digitalWrite(EPD_CS, HIGH);
-    SPI.endTransaction();
+template <uint8_t Command>
+void StickyDisplay::gameCommand(const uint8_t* data, size_t length) {
+    static_assert(gameCommandAllowed(Command), "SSD1677 command is not on the game driver's allowlist");
+    gameSend(Command, data, length);
+}
+
+template <uint8_t Value>
+void StickyDisplay::gameUpdate() {
+    static_assert(gameUpdateAllowed(Value), "display update sequence is not on the allowlist");
+    gameCommandByte<0x22>(Value);
+    gameCommand<0x20>();
 }
 
 // Sets the RAM window and address to the game window's first write row.
@@ -183,130 +188,136 @@ void StickyDisplay::gameWindow() {
     const uint8_t yRange[4] = {uint8_t(y1), uint8_t(y1 >> 8), uint8_t(y0), uint8_t(y0 >> 8)};
     const uint8_t xStart[2] = {uint8_t(x0), uint8_t(x0 >> 8)};
     const uint8_t yStart[2] = {uint8_t(y1), uint8_t(y1 >> 8)};
-    gameCommandByte(0x11, 0x01);  // X increment, Y decrement
-    gameCommand(0x44, xRange, sizeof(xRange));
-    gameCommand(0x45, yRange, sizeof(yRange));
-    gameCommand(0x4E, xStart, sizeof(xStart));
-    gameCommand(0x4F, yStart, sizeof(yStart));
+    gameCommandByte<0x11>(0x01);  // X increment, Y decrement
+    gameCommand<0x44>(xRange, sizeof(xRange));
+    gameCommand<0x45>(yRange, sizeof(yRange));
+    gameCommand<0x4E>(xStart, sizeof(xStart));
+    gameCommand<0x4F>(yStart, sizeof(yStart));
 }
 
-void StickyDisplay::gameWaitBusy() {
+bool StickyDisplay::gameWaitBusy() {
     const uint32_t start = millis();
     while (digitalRead(EPD_BUSY) == HIGH) {
         if (millis() - start > 2000) {
             Serial.println("StickyDisplay: game update busy timeout");
-            break;
+            return false;
         }
     }
+    return true;
+}
+
+// --- InkBoyPanel: the SSD1677 side of the InkBoy drive -----------------------
+
+bool StickyDisplay::videoStart(bool gray) {
+    // Entered right after a full refresh: the window shows white, and the
+    // controller holds the OTP voltages/VCOM loaded by it. InkBoy: one active
+    // waveform frame, ~20 ms dithered, ~14 ms grayscale.
+    uint8_t lut[105];
+    buildGameLut(lut, gray ? GAME_GRAY_FRAMES : GAME_DITHER_FRAMES);
+    // bb_epaper's full-refresh init sets Display Update Control 1 to 0x40,
+    // which makes the controller read the old RAM as zeros; restore normal.
+    const uint8_t updateControl[2] = {0x00, 0x00};
+    gameCommand<0x21>(updateControl, sizeof(updateControl));
+    gameCommandByte<0x3C>(0xC0);  // border floats during updates
+    gameCommand<0x32>(lut, sizeof(lut));
+    _gamePowered = false;
+    return true;
+}
+
+bool StickyDisplay::videoScan(const uint8_t* oldPlane, const uint8_t* newPlane) {
+    gameWindow();
+    gameCommand<0x26>(oldPlane, GAME_BYTES);
+    gameWindow();
+    gameCommand<0x24>(newPlane, GAME_BYTES);
+    if (_gamePowered) gameUpdate<0x0C>();
+    else gameUpdate<0xCC>();
+    _gamePowered = true;
+    return gameWaitBusy();
+}
+
+void StickyDisplay::videoPowerOff() {
+    if (!_gamePowered) return;
+    gameUpdate<0x03>();  // analog + clock off; RAM and waveform are kept
+    gameWaitBusy();
+    _gamePowered = false;
 }
 
 void StickyDisplay::setGameMode(bool active) {
     if (active == _gaming) return;
     if (active) {
-        if (!allocateGame()) {
-            Serial.println("StickyDisplay: not enough memory for game video");
-            return;
-        }
-        // Entered right after a full refresh: the window shows the canvas,
-        // and the controller holds the OTP voltages/VCOM loaded by it. Only
-        // the waveform timing is replaced.
         _gameRotation = getRotation() == 1 ? 1 : 3;
-        memset(_gameTarget, 0xFF, GAME_BYTES);  // the window starts white
-        memset(_gameCount, 0, GAME_BYTES * 3);
-        _gameIdleCalls = 0;
-        _gameAutoCleaned = false;
-        uint8_t lut[105];
-        buildGameLut(lut, _pulseFrames);
-        // bb_epaper's full-refresh init sets Display Update Control 1 to
-        // 0x40, which makes the controller read the old RAM as all zeros.
-        // Per-pixel driving selects pixels through the old RAM, so restore
-        // normal RAM handling for both planes.
-        const uint8_t updateControl[2] = {0x00, 0x00};
-        gameCommand(0x21, updateControl, sizeof(updateControl));
-        gameCommandByte(0x3C, 0xC0);  // border floats during updates
-        gameCommand(0x32, lut, sizeof(lut));
-        _gamePowered = false;
-        _gaming = true;
+        _gaming = _video.start(this);
     } else {
+        _video.stop();
         _gaming = false;
-        _gameImage = nullptr;
-        if (_gamePowered) {
-            gameCommandByte(0x22, 0x03);  // analog + clock off
-            gameCommand(0x20);
-            gameWaitBusy();
-            _gamePowered = false;
-        }
-        // bb_epaper soft-resets the controller and reloads the OTP waveform
-        // on its next refresh; make that refresh a full one.
+        // bb_epaper reloads the OTP waveform on its next refresh; make it full.
         _forceFullRefresh = true;
     }
 }
 
-bool StickyDisplay::refreshGame(bool clean, bool smooth) {
-    (void)smooth;
-    if (!_gaming || !_gameImage) return _gaming;
-    // A picture that has stopped changing gets one automatic clean, which
-    // removes residual ghosting without a visible flash.
-    if (!clean && !_gameAutoCleaned && _gameIdleCalls >= GAME_AUTO_CLEAN_IDLE_CALLS) {
-        clean = true;
-        _gameAutoCleaned = true;
-    }
+// --- Grayscale still images --------------------------------------------------
 
-    // Per-pixel drive budgets, 32 pixels per step. Each pixel has a target
-    // bit (as last shown) and a 3-bit count of pulses still to deliver, kept
-    // bit-sliced across three planes. A pixel is driven toward its target
-    // while it has pulses left by writing old = !target, new = target; a
-    // settled pixel is written old = new and receives no drive.
-    const uint32_t* image = reinterpret_cast<const uint32_t*>(_gameImage);
-    uint32_t* old = reinterpret_cast<uint32_t*>(_gameOld);
-    uint32_t* c0 = _gameCount;
-    uint32_t* c1 = _gameCount + GAME_WORDS;
-    uint32_t* c2 = _gameCount + 2 * GAME_WORDS;
-    // A new change uses one pulse now, so counters restart at budget - 1.
-    const uint8_t whiteRestart = (clean ? GAME_CLEAN_PULSES : _budgetWhite) - 1;
-    const uint8_t blackRestart = (clean ? GAME_CLEAN_PULSES : _budgetBlack) - 1;
-    uint32_t anyDrive = 0, anyChange = 0;
-    for (size_t i = 0; i < GAME_WORDS; ++i) {
-        const uint32_t target = image[i];
-        const uint32_t difference = target ^ _gameTarget[i];
-        anyChange |= difference;
-        const uint32_t changed = clean ? 0xFFFFFFFFu : difference;
-        const uint32_t toWhite = changed & target, toBlack = changed & ~target;
-        uint32_t a = c0[i], b = c1[i], c = c2[i];
-        const uint32_t pending = a | b | c;
-        // Decrement pending counters (bit-sliced subtract-one).
-        const uint32_t borrow0 = pending;
-        const uint32_t na = a ^ borrow0;
-        const uint32_t borrow1 = borrow0 & ~a;
-        const uint32_t nb = b ^ borrow1;
-        const uint32_t borrow2 = borrow1 & ~b;
-        const uint32_t nc = c ^ borrow2;
-        // Changed pixels restart their budget for their direction.
-        c0[i] = (na & ~changed) | ((whiteRestart & 1) ? toWhite : 0) | ((blackRestart & 1) ? toBlack : 0);
-        c1[i] = (nb & ~changed) | ((whiteRestart & 2) ? toWhite : 0) | ((blackRestart & 2) ? toBlack : 0);
-        c2[i] = (nc & ~changed) | ((whiteRestart & 4) ? toWhite : 0) | ((blackRestart & 4) ? toBlack : 0);
-        const uint32_t drive = changed | pending;
-        old[i] = target ^ drive;
-        _gameTarget[i] = target;
-        anyDrive |= drive;
-    }
-    if (anyChange) {
-        _gameIdleCalls = 0;
-        _gameAutoCleaned = false;
-    } else if (_gameIdleCalls < GAME_AUTO_CLEAN_IDLE_CALLS) {
-        ++_gameIdleCalls;
-    }
-    if (!anyDrive) return true;  // settled and unchanged: nothing to drive
+bool StickyDisplay::drawGrayCover(uint8_t* gray, int x, int y, int w, int h) {
+    int16_t* errors = static_cast<int16_t*>(ps_malloc(sizeof(int16_t) * 2 * (w + 2)));
+    if (!errors) return false;
+    StickyGrayImage::quantize(gray, w, h, errors);
+    free(errors);
+    return drawGrayImage(gray, x, y, w, h);
+}
 
-    gameWindow();
-    gameCommand(0x26, _gameOld, GAME_BYTES);       // old plane
-    gameWindow();
-    gameCommand(0x24, _gameImage, GAME_BYTES);     // new plane
-    gameCommandByte(0x22, _gamePowered ? 0x0C : 0xCC);
-    gameCommand(0x20);
+bool StickyDisplay::drawGrayImage(const uint8_t* pulses, int x, int y, int w, int h) {
+    if (!getBuffer() || !_previousBuffer || !pulses || _gaming) return false;
+    uint8_t maxPulses = 0;
+    for (size_t i = 0, n = size_t(w) * h; i < n; ++i) maxPulses = std::max(maxPulses, pulses[i]);
+    if (!maxPulses) return true;
+    // The canvas is borrowed to lay out each pass in controller order (GFX
+    // handles the rotation); keep its picture to restore afterwards.
+    uint8_t* saved = static_cast<uint8_t*>(heap_caps_malloc(FRAME_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!saved) return false;
+    memcpy(saved, getBuffer(), FRAME_BYTES);
+
+    const uint32_t started = millis();
+    uint8_t lut[105];
+    buildBlackPulseLut(lut, StickyGrayImage::PULSE_FRAMES);
+    const uint8_t updateControl[2] = {0x00, 0x00};
+    // Old plane all white: a black pixel in the new plane differs from it and
+    // gets one black pulse; every white one is held.
+    memset(_previousBuffer, 0xFF, FRAME_BYTES);
+    bool delivered = true;
+    for (uint8_t pass = 1; pass <= maxPulses && delivered; ++pass) {
+        fillScreen(1);
+        for (int row = 0; row < h; ++row) {
+            const uint8_t* line = pulses + size_t(row) * w;
+            for (int col = 0; col < w; ++col)
+                if (line[col] >= pass) drawPixel(x + col, y + row, 0);
+        }
+        digitalWrite(SD_CS, HIGH);
+        SPI.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
+        _panel.setBuffer(_previousBuffer);
+        _panel.writePlane(PLANE_0_TO_1);
+        _panel.setBuffer(getBuffer());
+        _panel.writePlane(PLANE_0);
+        SPI.endTransaction();
+        // bb_epaper re-sends this panel's full init before each plane write,
+        // which resets update control and the waveform: set them per pass.
+        gameCommand<0x21>(updateControl, sizeof(updateControl));
+        gameCommandByte<0x3C>(0xC0);
+        gameCommand<0x32>(lut, sizeof(lut));
+        // The init also resets the controller, which turns the analog supply
+        // off: power it up for every pass.
+        gameUpdate<0xCC>();
+        delivered = gameWaitBusy();
+    }
+    gameUpdate<0x03>();  // analog + clock off
     gameWaitBusy();
-    _gamePowered = true;
-    return true;
+    memcpy(getBuffer(), saved, FRAME_BYTES);
+    free(saved);
+    // The panel no longer matches the canvas differential reference.
+    memset(_previousBuffer, 0xFF, FRAME_BYTES);
+    _forceFullRefresh = true;
+    Serial.printf("StickyDisplay: grayscale image %dx%d, %u passes in %lu ms\n", w, h, maxPulses,
+                  millis() - started);
+    return delivered;
 }
 
 void StickyDisplay::hibernate() {
