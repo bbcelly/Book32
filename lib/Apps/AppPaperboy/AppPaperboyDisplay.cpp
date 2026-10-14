@@ -477,25 +477,6 @@ void AppPaperboy::serialSetting(const char* line) {
         }
         return -1;
     };
-#if defined(BOARD_SEEED_XIAO_ESP32S3)
-    if (sscanf(line, "b32 pll %i", &n) == 1) { GxEPD2_750_T7_Fast::gamePll = n; Serial.printf("b32 pll 0x%02X\n", n); return; }
-    if (strcmp(line, "b32 ramp") == 0) {
-        auto& d = DisplayMgr::getInstance().getDisplay();
-        if (d.gameActive()) return;
-        // Tone calibration: 16 bands with 0..15 black pulses, from white.
-        constexpr int BW = 480, BH = 800;
-        uint8_t* pulses = static_cast<uint8_t*>(ps_malloc(BW * BH));
-        if (!pulses) return;
-        for (int y = 0; y < BH; ++y) memset(pulses + y * BW, y / 50, BW);
-        d.setFullWindow();
-        d.firstPage();
-        do { d.fillScreen(GxEPD_WHITE); } while (d.nextPage());
-        d.drawGrayImage(pulses, 0, 0, BW, BH);
-        free(pulses);
-        return;
-    }
-    if (sscanf(line, "b32 frames %d", &n) == 1) { GxEPD2_750_T7_Fast::gameFrames = n; Serial.printf("b32 frames %d\n", n); return; }
-#endif
     bool ok = true, modeSetting = true;
     if (strncmp(line, "set ", 4) == 0 && (_playing || _paused)) {
         Serial.println("Inkade: close the game before changing display settings");

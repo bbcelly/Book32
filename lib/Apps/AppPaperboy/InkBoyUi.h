@@ -117,16 +117,6 @@ inline void draw(Adafruit_GFX& d,InkSystem system=INK_SYSTEM_GB) {
     }
     d.drawRect(gx-1,gy-1,gw+2,gh+2,BLACK);
     centeredText(d,"Inkade",TITLE_X,nes ? 550 : TITLE_Y,&FreeSansBoldOblique18pt7b);
-#if defined(BOARD_SEEED_XIAO_ESP32S3)
-    // Book32 has no touch screen: a Bluetooth gamepad plays.
-    centeredText(d,"Bluetooth gamepad",240,470,&FreeSansBold12pt7b);
-    centeredText(d,"D-pad and A / B / Select / Start as on a Game Boy",240,512,nullptr,1);
-    centeredText(d,"X and Y also work as A and B",240,532,nullptr,1);
-    centeredText(d,"Home, or Select + Start: pause and saves",240,552,nullptr,1);
-    centeredText(d,"Hold the side button to pause without a gamepad",240,592,nullptr,1);
-    d.setFont(nullptr); d.setTextSize(1); d.setTextWrap(true);
-    return;
-#endif
     d.fillRoundRect(DPAD_X-DPAD_HALF,padY-DPAD_ARM,2*DPAD_HALF+1,2*DPAD_ARM+1,5,BLACK);
     d.fillRoundRect(DPAD_X-DPAD_ARM,padY-DPAD_HALF,2*DPAD_ARM+1,2*DPAD_HALF+1,5,BLACK);
     d.fillCircle(A_X,A_Y+offset,AB_RADIUS,BLACK); d.fillCircle(B_X,B_Y+offset,AB_RADIUS,BLACK);

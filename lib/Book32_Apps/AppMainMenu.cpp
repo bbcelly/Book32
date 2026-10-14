@@ -15,7 +15,7 @@
 #include "NetworkWork.h"
 #endif
 
-#if defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
+#if defined(BOARD_SEEED_STICKY)
 // With Inkade the Sticky and Book32 have five tiles: three tighter rows end above the
 // footer on its 800 px screen.
 static constexpr int MENU_START_Y = 120, MENU_ROW_HEIGHT = 200;
@@ -520,8 +520,10 @@ void AppMainMenu::draw() {
                 display.drawBitmap(x, y, icon, ICON_SIZE, ICON_SIZE, GxEPD_BLACK);
 #if BOOK32_HAS_INKBOY
             } else if (strcmp(app->getName(), "Inkade") == 0) {
-                for (int line = 0; line < 4; ++line)
-                    display.drawRoundRect(x+10+line,y+32+line,140-line*2,98-line*2,24,GxEPD_BLACK);
+                // A 4 px frame as a filled shape minus its inside: nested
+                // outlines with one radius leave gaps in the corners.
+                display.fillRoundRect(x+10,y+32,140,98,24,GxEPD_BLACK);
+                display.fillRoundRect(x+14,y+36,132,90,20,GxEPD_WHITE);
                 display.fillRoundRect(x+35,y+65,46,14,3,GxEPD_BLACK);
                 display.fillRoundRect(x+51,y+49,14,46,3,GxEPD_BLACK);
                 display.fillCircle(x+119,y+63,10,GxEPD_BLACK);

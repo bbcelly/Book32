@@ -432,9 +432,9 @@ void GxEPD2_750_T7_Fast::_Update_Part()
   _waitWhileBusy("_Update_Part", partial_refresh_time);
 }
 
-// --- InkDeck: Inkade fast video -----------------------------------------------
+// --- InkDeck: per-pixel pulse drive (grayscale sleep covers) -----------------
 
-void GxEPD2_750_T7_Fast::_writeGameLut(uint8_t command, uint8_t voltages, uint8_t frames)
+void GxEPD2_750_T7_Fast::_writePulseLut(uint8_t command, uint8_t voltages, uint8_t frames)
 {
   // One group: phase A at `voltages` (2 bits: 01 VDH = black, 10 VDL = white)
   // for `frames` frames, phases B-D unused, repeat once; the rest is zero.
@@ -443,16 +443,13 @@ void GxEPD2_750_T7_Fast::_writeGameLut(uint8_t command, uint8_t voltages, uint8_
   _writeData(lut, sizeof(lut));
 }
 
-uint8_t GxEPD2_750_T7_Fast::gamePll = 0;
-uint8_t GxEPD2_750_T7_Fast::gameFrames = 0;
-
-void GxEPD2_750_T7_Fast::gameBegin(uint8_t frames)
+void GxEPD2_750_T7_Fast::pulseBegin(uint8_t frames)
 {
   _InitDisplay();
-  // PLL: a fast frame rate. Each refresh has ~8 frames of fixed overhead,
-  // so this matters more than the drive pulse itself.
+  // PLL: a fast frame rate (~5 ms frames). Each refresh has ~8 frames of
+  // fixed overhead, so this matters more than the drive pulse itself.
   _writeCommand(0x30);
-  _writeData(gamePll ? gamePll : 0x0F);
+  _writeData(0x0F);
   _writeCommand(0x00); // panel setting
   _writeData(0x3f);    // KW mode, LUTs from registers
   _writeCommand(0x82); // vcom_DC setting, as for partial updates
@@ -460,12 +457,12 @@ void GxEPD2_750_T7_Fast::gameBegin(uint8_t frames)
   _writeCommand(0x50); // VCOM and data interval
   _writeData(0x39);
   _writeData(0x07);
-  _writeGameLut(0x20, 0x00, frames); // LUTC: VCOM held at DC
-  _writeGameLut(0x21, 0x00, frames); // LUTWW: hold
-  _writeGameLut(0x22, 0x80, frames); // LUTKW: old K, new W -> VDL (white)
-  _writeGameLut(0x23, 0x40, frames); // LUTWK: old W, new K -> VDH (black)
-  _writeGameLut(0x24, 0x00, frames); // LUTKK: hold
-  _writeGameLut(0x25, 0x00, frames); // LUTBD: border unchanged
+  _writePulseLut(0x20, 0x00, frames); // LUTC: VCOM held at DC
+  _writePulseLut(0x21, 0x00, frames); // LUTWW: hold
+  _writePulseLut(0x22, 0x80, frames); // LUTKW: old K, new W -> VDL (white)
+  _writePulseLut(0x23, 0x40, frames); // LUTWK: old W, new K -> VDH (black)
+  _writePulseLut(0x24, 0x00, frames); // LUTKK: hold
+  _writePulseLut(0x25, 0x00, frames); // LUTBD: border unchanged
   _using_partial_mode = true; // GxEPD2 must not reload its own LUTs meanwhile
 }
 
@@ -477,7 +474,7 @@ void GxEPD2_750_T7_Fast::_writePlaneRows(uint8_t command, const uint8_t* plane, 
   _endTransfer();
 }
 
-void GxEPD2_750_T7_Fast::gameScan(const uint8_t* oldPlane, const uint8_t* newPlane, uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+void GxEPD2_750_T7_Fast::pulseScan(const uint8_t* oldPlane, const uint8_t* newPlane, uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 {
   _PowerOn();
   _writeCommand(0x91); // partial in
@@ -485,11 +482,11 @@ void GxEPD2_750_T7_Fast::gameScan(const uint8_t* oldPlane, const uint8_t* newPla
   _writePlaneRows(0x10, oldPlane, w / 8, h); // old
   _writePlaneRows(0x13, newPlane, w / 8, h); // new
   _writeCommand(0x12); // display refresh
-  _waitWhileBusy("game scan", 40);
+  _waitWhileBusy("pulse scan", 40);
   _writeCommand(0x92); // partial out
 }
 
-void GxEPD2_750_T7_Fast::gameEnd()
+void GxEPD2_750_T7_Fast::pulseEnd()
 {
   _PowerOff(); // also makes the next refresh reload its waveform
   // A hardware reset restores the default frame rate (PLL), which GxEPD2's

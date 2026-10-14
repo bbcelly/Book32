@@ -127,7 +127,7 @@ async function fetchStatus() {
         romMaxBytes = Number(data.romMaxBytes) || 0;
         document.getElementById('games-nav').classList.toggle('hidden', !romUploadsSupported);
         document.getElementById('games').classList.toggle('hidden', !romUploadsSupported);
-        document.getElementById('rom-limit').textContent = romUploadsSupported ? `Maximum ROM size: ${formatStorage(romMaxBytes)}. ${data.ebookStorage === 'internal' ? 'Stored in internal storage.' : 'MicroSD required.'}` : '';
+        document.getElementById('rom-limit').textContent = romUploadsSupported ? `Maximum ROM size: ${formatStorage(romMaxBytes)}. MicroSD required.` : '';
         document.getElementById('battery-val').innerText = data.battery + '%' + (data.charging ? ' (Charging)' : '');
         document.getElementById('uptime-val').innerText = data.uptime;
 

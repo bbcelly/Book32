@@ -287,9 +287,6 @@ void DisplayMgr::update() {
     // darkens the panel edge. Keep it armed briefly after a button press so
     // quick page turns skip the ~150ms re-arm, then power it down.
     // powerOff() is a no-op when already off.
-#if defined(BOARD_SEEED_XIAO_ESP32S3)
-    if (display.gameActive()) return;  // game video manages its own power
-#endif
     if (millis() - BatteryMgr::getInstance().getLastActivityTime() >= PANEL_POWER_HOLD_MS) {
         display.powerOff();
     }

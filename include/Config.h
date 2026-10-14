@@ -1,15 +1,15 @@
 #pragma once
 
 #if defined(BOARD_LILYGO_T5S3_PRO)
-#define SYSTEM_VERSION "1.4.0"
+#define SYSTEM_VERSION "1.4.1"
 #define DEVICE_NAME "LILYGO T5 E-Paper S3 Pro Lite (H752-01)"
 #define SLEEP_TIMEOUT_DEFAULT_MINUTES 10
 #elif defined(BOARD_SEEED_STICKY)
-#define SYSTEM_VERSION "1.4.0"
+#define SYSTEM_VERSION "1.4.1"
 #define DEVICE_NAME "Seeed Studio Sticky"
 #define SLEEP_TIMEOUT_DEFAULT_MINUTES 10
 #else
-#define SYSTEM_VERSION "1.4.0"
+#define SYSTEM_VERSION "1.4.1"
 #define DEVICE_NAME "Book32"
 #define SLEEP_TIMEOUT_DEFAULT_MINUTES 10
 #endif
@@ -143,15 +143,14 @@
 #endif
 
 // Inkade (Game Boy / NES) runs on the touch boards with fast video drivers.
-#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
 #define BOOK32_HAS_INKBOY 1
 #else
 #define BOOK32_HAS_INKBOY 0
 #endif
 // Boards whose Inkade video is the port of InkBoy's drive (320x288 window on
-// an 800x480 panel). Book32 has no touch screen: it plays with a Bluetooth
-// gamepad only.
-#if defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
+// an 800x480 panel).
+#if defined(BOARD_SEEED_STICKY)
 #define INKADE_INKBOY_VIDEO 1
 #else
 #define INKADE_INKBOY_VIDEO 0

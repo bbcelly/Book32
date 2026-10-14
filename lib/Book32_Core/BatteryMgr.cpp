@@ -574,15 +574,6 @@ void BatteryMgr::drawStatusIndicator() {
     return;
 #endif
 
-#if BOOK32_HAS_INKBOY
-    // Inkade draws full screens (and drives the game window directly): a
-    // partial indicator refresh would land in the middle of them.
-    App* active = AppMgr::getInstance().getCurrentApp();
-    if (active && strcmp(active->getName(), "Inkade") == 0) {
-        _lastDisplayedCharging = currentCharging;
-        return;
-    }
-#endif
     // Only refresh display when charging state changes (plugged in or unplugged)
     if (currentCharging == _lastDisplayedCharging) {
         return;  // No change, no update needed

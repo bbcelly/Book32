@@ -1,6 +1,6 @@
 #pragma once
 #include "Config.h"
-#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
 #include "BaseApp.h"
 #include "InputMgr.h"
 #include "GameFrameTiming.h"
@@ -86,11 +86,7 @@ private:
     uint8_t whiteFill() const;
     bool _padHomeHeld = false;
     unsigned _cursor = 0;        // library row chosen with keys / gamepad
-#if defined(BOARD_SEEED_XIAO_ESP32S3)
-    bool _cursorShown = true;    // Book32: keys / gamepad are the only input
-#else
     bool _cursorShown = false;   // shown after the first key press
-#endif
     void keyAction(InputAction a);
     // Scan pacing: a fixed schedule of 1/fps slots, or (cap 0) at most one
     // scan per 16.7 ms as fast as the panel goes.

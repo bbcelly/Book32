@@ -70,19 +70,16 @@ class GxEPD2_750_T7_Fast : public GxEPD2_EPD
     void refresh(int16_t x, int16_t y, int16_t w, int16_t h); // screen refresh from controller memory, partial screen
     void powerOff(); // turns off generation of panel driving voltages, avoids screen fading over time
     void hibernate(); // turns powerOff() and sets controller to deep sleep for minimum power use, ONLY if wakeable by RST (rst >= 0)
-    // InkDeck: Inkade fast video (a port of InkBoy's per-pixel drive). After a
-    // full refresh, load a one-phase waveform: old/new K->W pulses white, W->K
+    // InkDeck: per-pixel pulse drive (grayscale sleep covers). After a full
+    // refresh, load a one-phase waveform: old/new K->W pulses white, W->K
     // pulses black, unchanged pixels are held. Each scan writes both planes of
     // a window (rows of w/8 bytes, x and w multiples of 8) and refreshes it.
-    void gameBegin(uint8_t frames);
-    // Tuning (serial "b32 pll N", "b32 frames N"): 0 = default (PLL 0x0F).
-    static uint8_t gamePll, gameFrames;
-    void gameScan(const uint8_t* oldPlane, const uint8_t* newPlane, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
-    void gamePowerOff() { _PowerOff(); _using_partial_mode = true; }
+    void pulseBegin(uint8_t frames);
+    void pulseScan(const uint8_t* oldPlane, const uint8_t* newPlane, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
     // Back to the normal waveforms on the next refresh.
-    void gameEnd();
+    void pulseEnd();
   private:
-    void _writeGameLut(uint8_t command, uint8_t voltages, uint8_t frames);
+    void _writePulseLut(uint8_t command, uint8_t voltages, uint8_t frames);
     void _writePlaneRows(uint8_t command, const uint8_t* plane, uint16_t rowBytes, uint16_t rows);
     void _setPartialRamArea(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
     void _PowerOn();

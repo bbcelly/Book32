@@ -3,7 +3,7 @@
 #include <string.h>
 #include "LilygoLayout.h"
 
-#if defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
+#if defined(BOARD_SEEED_STICKY)
 // Sticky (SSD1677) and Book32 (GD7965): 800x480 panels, 480x800 portrait UI. Game Boy at 2x in a
 // 320x288 window. Each source pixel is a 2x2 cell covered 0/4, 1/4, 3/4 or 4/4
 // black, so four shades need no temporal dithering.

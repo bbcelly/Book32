@@ -10,18 +10,19 @@ updates.
 
 | Target | MCU / flash | Display | Input | Ebook storage |
 | --- | --- | --- | --- | --- |
-| Book32 | XIAO ESP32-S3, 16 MB | 7.5 inch, 800 x 480 | One button + Bluetooth LE gamepad | 10 MB internal LittleFS |
+| Book32 | XIAO ESP32-S3, 16 MB | 7.5 inch, 800 x 480 | One button (Bluetooth LE gamepad for menus) | 10 MB internal LittleFS |
 | Seeed Studio Sticky | ESP32-S3, 32 MB | 3.97 inch, 800 x 480 | GT911 touch + three buttons + buzzer | MicroSD, with 23 MB internal fallback |
 | LILYGO T5 S3 Pro H752-01 / Pro Lite (experimental) | ESP32-S3, 16 MB | 4.7 inch, 960 x 540, parallel | GT911 touch + BOOT back/sleep | MicroSD, with internal fallback |
 
 ### LILYGO preview
 
-The browser installer provides **InkDeck 1.4.0** for all three targets. The
+The browser installer provides **InkDeck 1.4.1** for all three targets. The
 LILYGO H752-01 / Pro Lite build remains experimental; the older H752 pinout is
 not supported. The header shows only InkDeck and the release version, without
-development-build suffixes. See [release notes](docs/release-1.4.0.md).
-1.4.0 brings Inkade (Game Boy / Game Boy Color) to Book32, played with a
-Bluetooth LE gamepad; adds Bluetooth gamepad support to all three devices;
+development-build suffixes. See [release notes](docs/release-1.4.1.md).
+1.4.1 removes Inkade from Book32 again (its 7.5" panel could not show games
+without heavy ghosting) and fixes the Inkade icon's corners on the Sticky and
+LILYGO. 1.4.0 adds Bluetooth gamepad support to all three devices;
 shows the sleep cover in true grayscale on every device; renames Ink Boy to
 Inkade; and makes the Sticky's game video a port of InkBoy. 1.3.9 fixes the Sticky and Book32 sleep screen saying "Press BOOT to wake".
 1.3.8 shows the cover of the book you are reading while a device sleeps
@@ -38,9 +39,8 @@ more than twice as fast.
 The LILYGO build includes **NES (Nofrendo)** and **Game Boy / Game Boy Color
 (CrankBoy)** in Inkade. Its library shows Game Boy and NES tabs only for
 detected games, then launches the appropriate core. Web uploads accept `.gb`,
-`.gbc` and `.nes` into `/roms` on MicroSD. The Sticky and Book32 show Game Boy / Game Boy
-Color only; Book32 stores games in internal storage and is played with a
-Bluetooth LE gamepad. NES now preserves its native 256×240 image at exact 2× scaling
+`.gbc` and `.nes` into `/roms` on MicroSD. The Sticky shows Game Boy / Game Boy Color only;
+Book32 does not expose this feature. NES now preserves its native 256×240 image at exact 2× scaling
 (512×480), without the old 160×120 intermediate image. No games or BIOS files
 are bundled.
 

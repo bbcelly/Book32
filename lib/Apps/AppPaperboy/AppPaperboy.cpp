@@ -1,5 +1,5 @@
 #include "AppPaperboy.h"
-#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY) || defined(BOARD_SEEED_XIAO_ESP32S3)
+#if defined(BOARD_LILYGO_T5S3_PRO) || defined(BOARD_SEEED_STICKY)
 #include "ConsoleCore.h"
 #include "RomFormat.h"
 #include "RomStorage.h"
@@ -119,12 +119,7 @@ void AppPaperboy::start() {
 #if INKADE_INKBOY_VIDEO
     _screen = SCREEN_LIBRARY;
     _display = InkadeSettings::Active();
-    if (!InkadeSettings::load(_display)) {
-#if defined(BOARD_SEEED_XIAO_ESP32S3)
-        // Book32's panel takes about twice as long per grayscale pair.
-        _display.video.mode = InkBoyDrive::MODE_DITHERED;
-#endif
-    }
+    InkadeSettings::load(_display);  // defaults when the card has none
     DisplayMgr::getInstance().getDisplay().setGameSettings(_display.video);
     InputMgr::getInstance().setSerialHandler([this](const char* line) { serialSetting(line); });
 #endif
@@ -805,11 +800,7 @@ void AppPaperboy::paintPause() {
         button("Save & exit to ROM list",p.left,p.exitY,p.width,p.exitH);
         button("Restart game",p.left,p.restartY,p.width,p.restartH);
         label(d,_message,p.left,p.messageY);
-#if defined(BOARD_SEEED_XIAO_ESP32S3)
-        label(d,"Gamepad A: resume   B: save & exit",p.left,p.noteY);
-#else
         label(d,"Auto resume saves on exit / sleep.",p.left,p.noteY);
-#endif
     }
     d.refresh(false);
 }
@@ -906,13 +897,8 @@ void AppPaperboy::draw() {
     }
     if(_filtered.empty()) {
         label(d,"Your next adventure starts here.",40,365,2);
-#if defined(BOARD_SEEED_XIAO_ESP32S3)
-        label(d,"Upload ROMs from InkDeck's web interface",40,420,1);
-        label(d,"(Games tab); they are kept in internal storage.",40,443,1);
-#else
         label(d,"Copy ROMs to /roms on the MicroSD card",40,420,1);
         label(d,"or upload them from InkDeck's web interface.",40,443,1);
-#endif
         label(d,"Game Boy  .gb / .gbc",40,512,2);
 #if !INKADE_INKBOY_VIDEO
         label(d,"NES       .nes",40,552,2);

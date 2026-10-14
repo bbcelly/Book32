@@ -25,13 +25,13 @@ and exact PlatformIO library sources used. The Arduino core/library sources
 are included; the pinned Espressif toolchain and SDK are installed by PlatformIO.
 Rebuilding and installing modified firmware does not require a signing key.
 
-## InkBoy (Sticky and Book32 fast display drive)
+## InkBoy (Sticky fast display drive)
 
 `lib/Book32_Core/InkBoyDrive.h` ports the display drive of
 [InkBoy](https://github.com/kuslota/InkBoy) (main/drive_counters.c,
 main/gray_plan.c, main/gray_config.h, main/gray_adaptive.h, main/gray_motion.c)
 and `lib/Book32_Core/InkBoyVideo.*` ports its pacing (main/fast_display.c),
-adapted to the Sticky's SSD1677 and Book32's GD7965.
+adapted to the Sticky's SSD1677.
 
 ```text
 MIT License
