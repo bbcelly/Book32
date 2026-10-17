@@ -49,4 +49,19 @@ public:
     static bool dimensions(const uint8_t* data, size_t size, EpubImageInfo& info);
     static bool decode(const uint8_t* data, size_t size, int maxWidth, int maxHeight, EpubBitmap& bitmap,
                        EpubImageQuality quality = EpubImageQuality::Thumbnail);
+
+    // Page images (manga and converted PDFs): the whole image as 8-bit gray
+    // (0 black .. 255 white) fitted inside maxWidth x maxHeight, levels
+    // stretched. Returns a PSRAM buffer the caller frees, or nullptr.
+    // Progressive JPEGs are refused (see Cover above).
+    static uint8_t* decodeGray(const uint8_t* data, size_t size, int maxWidth, int maxHeight,
+                               int& width, int& height);
+    // The size decodeGray would give, from the image header alone.
+    static bool fittedSize(const uint8_t* data, size_t size, int maxWidth, int maxHeight, int& width, int& height);
+    // Area-averages (shrinking) or interpolates (enlarging) the rectangle
+    // (x, y, w, h) of a gray image into target (targetWidth x targetHeight).
+    static bool resampleRegion(const uint8_t* gray, int grayWidth, int x, int y, int w, int h,
+                               uint8_t* target, int targetWidth, int targetHeight);
+    // Atkinson dither of 8-bit gray into a 1-bit bitmap.
+    static bool dither(const uint8_t* gray, int width, int height, EpubBitmap& bitmap);
 };

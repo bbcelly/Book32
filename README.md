@@ -26,7 +26,8 @@ not updated with the ESP32 releases.
 ## Features
 
 - **eReader** for EPUB books, with illustrations, cover thumbnails and saved
-  reading position.
+  reading position. On the Sticky and LILYGO it also shows **PDFs and manga or
+  comics (CBZ)**, with pinch to zoom.
 - **Inkade** game player (Sticky and LILYGO): Game Boy and Game Boy Color on
   both, plus NES on the LILYGO. No games are included.
 - **Klipper monitor** for 3D printers on your network.
@@ -92,6 +93,23 @@ Pair a Bluetooth LE gamepad under **Settings** on the device or in the web
 interface. Put the gamepad in its BLE pairing mode first. Gamepads that only
 use Classic Bluetooth cannot connect, because the ESP32-S3 does not support
 it. The 8BitDo Ultimate 2C Wireless works in its Bluetooth mode.
+
+**PDFs and manga (Sticky and LILYGO)**
+
+Upload a PDF, CBZ or ZIP of page images in the web interface. Your browser
+turns it into pages sized for the device before uploading, so any PDF works,
+including scanned ones, and so do pages in WebP or progressive JPEG. Converting
+needs no internet; only PDFs with non-embedded Asian fonts fetch extra
+character data. A CBZ copied straight to the MicroSD card also opens if its
+pages are plain JPEG or PNG.
+
+- Pinch to zoom (up to 4x), drag to move around a zoomed page, swipe to turn
+  the page.
+- Tap the middle to zoom in on that spot, and again to zoom back out.
+- Zoomed in, tapping the right side (or the next button) moves one screen
+  along the page in reading order, then down a row, then on to the next page.
+- **Manga page order** in the web interface's reader settings turns pages
+  right to left. On the LILYGO, pages show in 16 grays (**Grayscale pages**).
 
 ## Games (Inkade)
 

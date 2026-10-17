@@ -802,3 +802,56 @@ bool EpubImageDecoder::decode(const uint8_t* data, size_t size, int maxWidth, in
     else free(gray);
     return dithered;
 }
+
+uint8_t* EpubImageDecoder::decodeGray(const uint8_t* data, size_t size, int maxWidth, int maxHeight,
+                                      int& width, int& height) {
+    width = height = 0;
+    if (jpegIsProgressive(data, size)) {
+        Serial.println("EpubImage: progressive JPEG page not decoded (known JPEGDEC overrun)");
+        return nullptr;
+    }
+    EpubImageInfo source;
+    if (!dimensions(data, size, source)) return nullptr;
+    int targetWidth = 0, targetHeight = 0;
+    fitDimensions(source.width, source.height, maxWidth, maxHeight, targetWidth, targetHeight);
+    if (targetWidth <= 0 || targetHeight <= 0) return nullptr;
+    const size_t bytes = static_cast<size_t>(targetWidth) * targetHeight;
+    uint8_t* gray = allocatePsram(bytes);
+    if (!gray) return nullptr;
+    memset(gray, 255, bytes);
+    bool decoded = false;
+    if (isJpeg(data, size)) decoded = decodeJpeg(data, size, gray, targetWidth, targetHeight, source, false);
+    else if (isPng(data, size)) decoded = decodePng(data, size, gray, targetWidth, targetHeight, source, false);
+    if (!decoded) {
+        free(gray);
+        return nullptr;
+    }
+    autoLevels(gray, targetWidth, targetHeight);
+    width = targetWidth;
+    height = targetHeight;
+    return gray;
+}
+
+bool EpubImageDecoder::fittedSize(const uint8_t* data, size_t size, int maxWidth, int maxHeight,
+                                  int& width, int& height) {
+    EpubImageInfo source;
+    if (!dimensions(data, size, source)) return false;
+    fitDimensions(source.width, source.height, maxWidth, maxHeight, width, height);
+    return width > 0 && height > 0;
+}
+
+bool EpubImageDecoder::resampleRegion(const uint8_t* gray, int grayWidth, int x, int y, int w, int h,
+                                      uint8_t* target, int targetWidth, int targetHeight) {
+    if (!gray || !target || w <= 0 || h <= 0 || targetWidth <= 0 || targetHeight <= 0) return false;
+    uint8_t* region = allocatePsram(static_cast<size_t>(w) * h);
+    if (!region) return false;
+    for (int row = 0; row < h; row++)
+        memcpy(region + static_cast<size_t>(row) * w, gray + static_cast<size_t>(y + row) * grayWidth + x, w);
+    resampleGray(region, w, h, target, targetWidth, targetHeight);
+    free(region);
+    return true;
+}
+
+bool EpubImageDecoder::dither(const uint8_t* gray, int width, int height, EpubBitmap& bitmap) {
+    return ditherAtkinson(gray, width, height, bitmap);
+}

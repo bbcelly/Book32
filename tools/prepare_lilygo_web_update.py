@@ -48,9 +48,10 @@ def hashes(directory):
             for p in directory.rglob('*') if p.is_file()}
 
 before = hashes(stage)
-assets = ('index.html', 'script.js', 'style.css')
+assets = ('index.html', 'script.js', 'style.css', 'pages.js', 'pdfjs/pdf.min.js.gz', 'pdfjs/pdf.worker.min.js.gz')
 source = Path(__file__).resolve().parents[1] / 'data'
 for name in assets:
+    (stage / name).parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source / name, stage / name)
 merged = root / 'web-merged.bin'
 subprocess.run(args + ['-c', stage.name, merged.name], cwd=root, check=True)

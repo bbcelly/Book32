@@ -344,6 +344,75 @@ void removeBookProgress(const String& filename) {
     }
 }
 
+// Book uploads, one at a time. On the touch boards an upload also holds the
+// storage lease (RomStorage::Upload), which pauses screen updates: the
+// Sticky's card shares its SPI bus with the display, and a redraw in the
+// middle of a large upload made the card reject a write.
+static AsyncWebServerRequest* bookUploadOwner = nullptr;
+static File bookUploadFile;
+static String bookUploadPath;
+static String bookUploadOriginal;
+static bool bookUploadFailed = false;  // A write failed: answer with an error
+static bool bookUploadDone = false;
+static bool bookUploadLeased = false;
+// Network packets are about 1.4 KB; cards write far better in large blocks.
+static constexpr size_t BOOK_UPLOAD_BLOCK = 64 * 1024;
+static uint8_t* bookUploadBlock = nullptr;
+static size_t bookUploadBlockUsed = 0;
+
+// Ends the current upload: an unfinished one (the connection dropped) is
+// removed, so no cut-off book is left in the library.
+static void endBookUpload() {
+    if (bookUploadFile) {
+        bookUploadFile.close();
+        if (!bookUploadDone) {
+            EbookFS.remove(bookUploadPath);
+            Serial.printf("Upload interrupted: removed %s\n", bookUploadPath.c_str());
+        }
+    }
+#if BOOK32_HAS_INKBOY
+    if (bookUploadLeased) RomStorage::release(RomStorage::Upload);
+#endif
+    bookUploadLeased = false;
+    bookUploadOwner = nullptr;
+}
+
+static void bookUploadWriteFailed(size_t index) {
+    Serial.printf("Upload failed writing %s at %u bytes\n", bookUploadPath.c_str(), static_cast<unsigned>(index));
+    bookUploadFile.close();
+    EbookFS.remove(bookUploadPath);
+    bookUploadFailed = true;
+}
+
+static size_t bookUploadWritten = 0;
+
+// The Sticky's card now and then rejects a write during a long upload (a CRC
+// or token error); writing the block again after reopening the file works.
+static bool bookUploadWrite(const uint8_t* data, size_t length) {
+    for (int attempt = 0; attempt < 6; attempt++) {
+        if (attempt) {
+            bookUploadFile.close();
+            delay(100 * attempt);
+            bookUploadFile = EbookFS.open(bookUploadPath, "r+");
+            if (!bookUploadFile || !bookUploadFile.seek(bookUploadWritten)) continue;
+            Serial.printf("Upload: writing again at %u bytes (attempt %d)\n",
+                          static_cast<unsigned>(bookUploadWritten), attempt + 1);
+        }
+        if (bookUploadFile.write(data, length) == length) {
+            bookUploadWritten += length;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void bookUploadFlush(size_t index) {
+    if (bookUploadFile && bookUploadBlockUsed && !bookUploadWrite(bookUploadBlock, bookUploadBlockUsed)) {
+        bookUploadWriteFailed(index);
+    }
+    bookUploadBlockUsed = 0;
+}
+
 void WebMgr::setupEndpoints() {
     // API: Status
     server->on("/api/status", HTTP_GET, [this](AsyncWebServerRequest *request) {
@@ -371,6 +440,12 @@ void WebMgr::setupEndpoints() {
 #if defined(BOARD_LILYGO_T5S3_PRO)
         doc["lilygoControls"] = true;
 #endif
+#if BOOK32_HAS_PAGE_BOOKS
+        // PDFs and CBZs are converted in the browser to pages of this size.
+        doc["pageBooks"] = true;
+        doc["pageWidth"] = 2 * SCREEN_WIDTH;
+        doc["pageHeight"] = 2 * SCREEN_HEIGHT;
+#endif
 
         doc["freeSpace"] = ebookStorageTotalBytes() - ebookStorageUsedBytes();
         doc["totalSpace"] = ebookStorageTotalBytes();
@@ -396,7 +471,7 @@ void WebMgr::setupEndpoints() {
             File file = root.openNextFile();
             while (file) {
                 String name = file.name();
-                if (name.endsWith(".epub") || name.endsWith(".ttf")) {
+                if (name.endsWith(".epub") || name.endsWith(".ttf") || name.endsWith(".cbz")) {
                     JsonObject book = books.createNestedObject();
                     String displayName = getOriginalFilename(name);
                     book["name"] = displayName;
@@ -416,15 +491,43 @@ void WebMgr::setupEndpoints() {
     // API: Upload Book to EbookFS
     server->on("/api/books/upload", HTTP_POST,
         [](AsyncWebServerRequest *request) {
-            request->send(200, "text/plain", "Upload Complete");
+            if (request->_tempObject) {  // Refused at the start (see below)
+                request->send(409, "text/plain", "Another upload or a game is using the storage card. Try again in a moment.");
+                return;
+            }
+            const bool saved = bookUploadOwner == request && bookUploadDone && !bookUploadFailed;
+            if (bookUploadOwner == request) endBookUpload();
+            if (saved) request->send(200, "text/plain", "Upload Complete");
+            else request->send(500, "text/plain", "The book could not be saved. Check the storage card and free space.");
         },
         [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-            static File uploadFile;
-            static String savedPath;
-            static String originalFilename;
-
             if (index == 0) {
-                originalFilename = filename;
+                bool refused = bookUploadOwner != nullptr;
+#if BOOK32_HAS_INKBOY
+                if (!refused) {
+                    refused = !RomStorage::acquire(RomStorage::Upload);
+                    bookUploadLeased = !refused;
+                }
+#endif
+                if (refused) {
+                    if (!request->_tempObject) request->_tempObject = calloc(1, 1);  // Freed by the server
+                    return;
+                }
+                bookUploadOwner = request;
+                request->onDisconnect([request]() {
+                    if (bookUploadOwner == request) endBookUpload();
+                });
+                if (request->client()) {
+                    // A card can pause for a few seconds while it reorganizes;
+                    // don't drop the connection over it (the default is 3 s).
+                    request->client()->setRxTimeout(30);
+                }
+                if (!bookUploadBlock) bookUploadBlock = static_cast<uint8_t*>(ps_malloc(BOOK_UPLOAD_BLOCK));
+                bookUploadBlockUsed = 0;
+                bookUploadWritten = 0;
+                bookUploadFailed = false;
+                bookUploadDone = false;
+                bookUploadOriginal = filename;
                 String safeName = filename;
 
                 int lastSlash = safeName.lastIndexOf('/');
@@ -455,21 +558,37 @@ void WebMgr::setupEndpoints() {
                     }
                 }
 
-                savedPath = "/" + safeName;
-                Serial.printf("Upload Start: %s (original: %s)\n", savedPath.c_str(), filename.c_str());
-                uploadFile = EbookFS.open(savedPath, FILE_WRITE);
-                if (!uploadFile) return;
+                bookUploadPath = "/" + safeName;
+                Serial.printf("Upload Start: %s (original: %s)\n", bookUploadPath.c_str(), filename.c_str());
+                bookUploadFile = EbookFS.open(bookUploadPath, FILE_WRITE);
+                if (!bookUploadFile) bookUploadFailed = true;
             }
+            if (bookUploadOwner != request) return;
 
-            if (uploadFile && len) {
-                uploadFile.write(data, len);
+            // A large manga upload takes minutes: it counts as activity, so
+            // idle sleep never cuts it off.
+            BatteryMgr::getInstance().resetIdleTimer();
+            if (bookUploadFile && len) {
+                if (!bookUploadBlock) {
+                    if (!bookUploadWrite(data, len)) bookUploadWriteFailed(index);
+                } else {
+                    for (size_t done = 0; bookUploadFile && done < len;) {
+                        const size_t take = min(len - done, BOOK_UPLOAD_BLOCK - bookUploadBlockUsed);
+                        memcpy(bookUploadBlock + bookUploadBlockUsed, data + done, take);
+                        bookUploadBlockUsed += take;
+                        done += take;
+                        if (bookUploadBlockUsed == BOOK_UPLOAD_BLOCK) bookUploadFlush(index);
+                    }
+                }
             }
 
             if (final) {
-                if (uploadFile) {
-                    uploadFile.close();
-                    String truncatedName = savedPath.substring(1); 
-                    String origName = originalFilename;
+                if (bookUploadBlock) bookUploadFlush(index);
+                if (bookUploadFile) {
+                    bookUploadFile.close();
+                    bookUploadDone = true;
+                    String truncatedName = bookUploadPath.substring(1);
+                    String origName = bookUploadOriginal;
                     int lastSlash = origName.lastIndexOf('/');
                     if (lastSlash >= 0) origName = origName.substring(lastSlash + 1);
                     lastSlash = origName.lastIndexOf('\\');
@@ -572,6 +691,8 @@ void WebMgr::setupEndpoints() {
                 doc["showChapter"] = savedDoc["showChapter"] | true;
                 doc["showPageNumber"] = savedDoc["showPageNumber"] | true;
                 doc["showReadingPercentage"] = savedDoc["showReadingPercentage"] | true;
+                doc["mangaRightToLeft"] = savedDoc["mangaRightToLeft"] | false;
+                doc["grayPages"] = savedDoc["grayPages"] | true;
             } else {
                 doc["refreshFrequency"] = READER_FULL_REFRESH_INTERVAL_DEFAULT;
                 doc["fontSize"] = READER_FONT_SIZE_DEFAULT;
@@ -616,6 +737,8 @@ void WebMgr::setupEndpoints() {
                         doc["showChapter"] = savedDoc["showChapter"] | true;
                         doc["showPageNumber"] = savedDoc["showPageNumber"] | true;
                         doc["showReadingPercentage"] = savedDoc["showReadingPercentage"] | true;
+                        doc["mangaRightToLeft"] = savedDoc["mangaRightToLeft"] | false;
+                        doc["grayPages"] = savedDoc["grayPages"] | true;
                     }
                     existing.close();
                 }
@@ -645,6 +768,12 @@ void WebMgr::setupEndpoints() {
             }
             if (json.containsKey("showReadingPercentage")) {
                 doc["showReadingPercentage"] = json["showReadingPercentage"].as<bool>();
+            }
+            if (json.containsKey("mangaRightToLeft")) {
+                doc["mangaRightToLeft"] = json["mangaRightToLeft"].as<bool>();
+            }
+            if (json.containsKey("grayPages")) {
+                doc["grayPages"] = json["grayPages"].as<bool>();
             }
 
             // Save to EbookFS (primary storage - persists through OTA)

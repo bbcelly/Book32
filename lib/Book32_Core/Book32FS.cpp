@@ -26,6 +26,7 @@ bool beginEbookStorage(bool internalPartitionBlank) {
 #endif
     delay(20);
 
+    // 4 MHz: at 20 MHz the Sticky's card failed writes during large uploads.
     if (SD.begin(SD_CS, SPI, 4000000, "/ebooks", 10, false)) {
         EbookFSPtr = &SD;
         usingSD = true;

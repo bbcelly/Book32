@@ -1,4 +1,6 @@
 let romUploadsSupported = false;
+let pageBooksSupported = false;
+let pageTarget = { width: 960, height: 1600 };
 let lilygoControlsSupported = false;
 let romMaxBytes = 0;
 let romUploading = false;
@@ -120,6 +122,14 @@ async function fetchStatus() {
         const res = await fetch('/api/status');
         const data = await res.json();
         romUploadsSupported = data.romUpload === true;
+        if (data.pageBooks === true && !pageBooksSupported) {
+            pageBooksSupported = true;
+            pageTarget = { width: data.pageWidth || 960, height: data.pageHeight || 1600 };
+            document.querySelectorAll('.page-books-only').forEach((el) => el.classList.remove('hidden'));
+            document.getElementById('book-file').accept = '.epub,.pdf,.cbz,.zip,.ttf';
+            document.getElementById('upload-hint').textContent = 'Add EPUB books, PDFs, or manga and comics (CBZ). PDFs and comics are converted in this browser first.';
+        }
+        if (data.lilygoControls === true) document.querySelectorAll('.lilygo-gray-only').forEach((el) => el.classList.remove('hidden'));
         const newlySupported = !lilygoControlsSupported && data.lilygoControls === true;
         lilygoControlsSupported = data.lilygoControls === true;
         document.getElementById('lilygo-settings-card').classList.toggle('hidden', !lilygoControlsSupported);
@@ -342,9 +352,10 @@ async function fetchBooks() {
         if (data.books && data.books.length > 0) {
             bookList.innerHTML = data.books.map(book => {
                 const isFont = book.filename.endsWith('.ttf');
+                const isPages = book.filename.endsWith('.cbz');
                 return `
                 <div class="book-item">
-                    <span class="book-title">${isFont ? '📂 [Font] ' : '📖 '}${book.name}</span>
+                    <span class="book-title">${isFont ? '📂 [Font] ' : isPages ? '🖼️ ' : '📖 '}${book.name}</span>
                     <span class="book-size">${Math.round(book.size / 1024)} KB</span>
                     <button class="btn-delete" onclick="deleteBook('${book.filename}', '${book.name}')">Delete</button>
                 </div>
@@ -371,11 +382,51 @@ function uploadBook() {
     }
 
     const file = fileInput.files[0];
-    if (!file.name.endsWith('.epub') && !file.name.endsWith('.ttf')) {
-        status.innerText = "Only .epub and .ttf files are supported.";
+    const lowerName = file.name.toLowerCase();
+    if (pageBooksSupported && PageBooks.isPageBook(lowerName)) {
+        convertAndUploadPageBook(file);
+        return;
+    }
+    if (!lowerName.endsWith('.epub') && !lowerName.endsWith('.ttf')) {
+        status.innerText = pageBooksSupported ? "Choose an EPUB, PDF, CBZ or ZIP file." : "Only .epub and .ttf files are supported.";
         status.style.color = "var(--danger)";
         return;
     }
+    sendBook(file);
+}
+
+// PDFs and comic archives become a CBZ of device-sized gray pages first.
+async function convertAndUploadPageBook(file) {
+    const status = document.getElementById('upload-status');
+    const progressContainer = document.getElementById('upload-progress');
+    const progressBar = document.getElementById('upload-progress-bar');
+    const button = document.querySelector('[onclick="uploadBook()"]');
+    progressContainer.classList.remove('hidden');
+    progressBar.style.width = '0%';
+    status.style.color = "var(--accent)";
+    status.innerText = "Preparing pages...";
+    if (button) button.disabled = true;
+    try {
+        const converted = await PageBooks.convert(file, pageTarget, (done, total) => {
+            progressBar.style.width = (total ? done * 100 / total : 0) + '%';
+            status.innerText = `Preparing pages... ${done} of ${total}`;
+        });
+        sendBook(converted, `${converted.name} (${Math.round(converted.size / 1048576)} MB)`);
+    } catch (e) {
+        progressContainer.classList.add('hidden');
+        status.innerText = "Could not convert: " + e.message;
+        status.style.color = "var(--danger)";
+        console.error(e);
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+
+function sendBook(file, label = '') {
+    const fileInput = document.getElementById('book-file');
+    const status = document.getElementById('upload-status');
+    const progressContainer = document.getElementById('upload-progress');
+    const progressBar = document.getElementById('upload-progress-bar');
 
     // Show progress bar and reset
     progressContainer.classList.remove('hidden');
@@ -394,7 +445,7 @@ function uploadBook() {
         if (e.lengthComputable) {
             const percentComplete = (e.loaded / e.total) * 100;
             progressBar.style.width = percentComplete + '%';
-            status.innerText = `Uploading... ${Math.round(percentComplete)}%`;
+            status.innerText = `Uploading${label ? ' ' + label : ''}... ${Math.round(percentComplete)}%`;
         }
     });
 
@@ -509,6 +560,8 @@ function getReaderSettings() {
             document.getElementById('show-chapter').checked = data.showChapter !== false;
             document.getElementById('show-page-number').checked = data.showPageNumber !== false;
             document.getElementById('show-reading-percentage').checked = data.showReadingPercentage !== false;
+            document.getElementById('manga-rtl').checked = data.mangaRightToLeft === true;
+            document.getElementById('gray-pages').checked = data.grayPages !== false;
         })
         .catch(error => console.error('Error loading reader settings:', error));
 }
@@ -533,7 +586,9 @@ function saveReaderSettings() {
             fontFamily: fontFamily,
             showChapter: showChapter,
             showPageNumber: showPageNumber,
-            showReadingPercentage: showReadingPercentage
+            showReadingPercentage: showReadingPercentage,
+            mangaRightToLeft: document.getElementById('manga-rtl').checked,
+            grayPages: document.getElementById('gray-pages').checked
         }),
     })
         .then(response => response.json())

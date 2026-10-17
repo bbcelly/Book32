@@ -41,6 +41,11 @@ void AppMgr::update() {
 }
 
 void AppMgr::draw() {
+#if BOOK32_HAS_INKBOY
+    // Uploads have the storage card to themselves; on the Sticky it shares
+    // the display's SPI bus. Screens catch up when the upload ends.
+    if (RomStorage::uploading()) return;
+#endif
     if (currentApp) {
         currentApp->draw();
     }

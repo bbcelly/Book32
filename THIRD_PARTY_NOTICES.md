@@ -106,6 +106,15 @@ Copyright 2026 Wenting Zhang. The complete MIT license is preserved in
 integration use InkDeck's existing FastEPD power control, pins and DMA transport;
 they do not use the M5PaperS3 power wiring or unlicensed Paperboy application glue.
 
+## PDF.js (PDFs in the web interface, Sticky and LILYGO)
+
+The web interface converts uploaded PDFs with Mozilla's PDF.js 3.11.174
+(`data/pdfjs`, compressed): https://github.com/mozilla/pdf.js
+
+Copyright Mozilla Foundation. PDF.js is distributed under the Apache License
+2.0. Its complete license text and source are available in the linked upstream
+repository; the license notice is kept at the top of each file.
+
 ## esptool-js
 
 The InkDeck browser installer uses Espressif's `esptool-js` Web Serial flasher:

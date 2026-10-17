@@ -216,6 +216,7 @@ static String titleFromFilename(String name) {
     String lower = name;
     lower.toLowerCase();
     if (lower.endsWith(".epub")) name.remove(name.length() - 5);
+    else if (lower.endsWith(".cbz")) name.remove(name.length() - 4);
     name.replace('_', ' ');
     name.trim();
     return name;
@@ -331,6 +332,8 @@ void AppReader::loadSettings() {
             _showChapter = doc["showChapter"] | true;
             _showPageNumber = doc["showPageNumber"] | true;
             _showReadingPercentage = doc["showReadingPercentage"] | true;
+            _rightToLeft = doc["mangaRightToLeft"] | false;
+            _grayPages = doc["grayPages"] | true;
         }
         file.close();
     }
@@ -427,7 +430,11 @@ void AppReader::scanBooks() {
         String fileName = normalizedBookName(file.name());
         String fileNameLower = fileName;
         fileNameLower.toLowerCase();
-        if(fileNameLower.endsWith(".epub")) {
+        bool pageBook = false;
+#if BOOK32_HAS_PAGE_BOOKS
+        pageBook = PageBook::isPageBookName(fileName);
+#endif
+        if(fileNameLower.endsWith(".epub") || pageBook) {
             BookEntry entry;
             entry.path = "/" + fileName;
             entry.size = static_cast<uint32_t>(file.size());
@@ -442,7 +449,7 @@ void AppReader::scanBooks() {
             }
             auto meta = metadata.find(fileName);
             String displayTitle = meta != metadata.end() ? meta->second : "";
-            if (displayTitle.length() == 0) {
+            if (displayTitle.length() == 0 && !pageBook) {
                 showLibraryLoading("Finding books...", 15);
                 EpubLoader loader;
                 String fullPath = "/ebooks/" + fileName;
@@ -565,6 +572,20 @@ void AppReader::loadBookCover(BookEntry& book, int width, int height) {
     if (book.coverAttempted) return;
     book.coverAttempted = true;
 
+#if BOOK32_HAS_PAGE_BOOKS
+    if (PageBook::isPageBookName(book.path)) {  // The first page is the cover
+        PageBook pages;
+        size_t size = 0;
+        uint8_t* data = pages.open("/ebooks" + book.path) ? pages.readPage(0, size) : nullptr;
+        if (data) {
+            std::shared_ptr<EpubBitmap> cover(new (std::nothrow) EpubBitmap());
+            if (cover && EpubImageDecoder::decode(data, size, width, height, *cover)) book.cover = cover;
+            free(data);
+        }
+        saveCachedCover(book, width, height);
+        return;
+    }
+#endif
     EpubLoader loader;
     String fullPath = "/ebooks" + book.path;
     if (!loader.open(fullPath.c_str(), false)) return;
@@ -598,14 +619,28 @@ bool AppReader::drawSleepCover(const String& message) {
     const int maxW = screenW - 2 * margin;
     const int maxH = screenH - 2 * margin - messageStrip;
 
-    EpubLoader loader;
-    String fullPath = "/ebooks" + lastBook;
-    if (!loader.open(fullPath.c_str(), false)) return false;
-    String coverHref = loader.getCoverHref();
     EpubBitmap cover;
-    const bool decoded = coverHref.length() &&
-                         loader.decodeImage(coverHref, maxW, maxH, cover, EpubImageQuality::Cover);
-    loader.close();
+    bool decoded = false;
+#if BOOK32_HAS_PAGE_BOOKS
+    if (PageBook::isPageBookName(lastBook)) {
+        PageBook pages;
+        size_t size = 0;
+        uint8_t* data = pages.open("/ebooks" + lastBook) ? pages.readPage(0, size) : nullptr;
+        if (data) {
+            decoded = EpubImageDecoder::decode(data, size, maxW, maxH, cover, EpubImageQuality::Cover);
+            free(data);
+        }
+    } else
+#endif
+    {
+        EpubLoader loader;
+        String fullPath = "/ebooks" + lastBook;
+        if (!loader.open(fullPath.c_str(), false)) return false;
+        String coverHref = loader.getCoverHref();
+        decoded = coverHref.length() &&
+                  loader.decodeImage(coverHref, maxW, maxH, cover, EpubImageQuality::Cover);
+        loader.close();
+    }
     if (!decoded || !cover.valid()) return false;
 
     const int coverX = (screenW - cover.width) / 2;
@@ -693,6 +728,12 @@ void AppReader::handleInput(InputAction action) {
         }
     } else if (_state == VIEW_READING) {
         _pageTurnStartedAt = millis();
+#if BOOK32_HAS_PAGE_BOOKS
+        if (_pageBook && (action == INPUT_NEXT || action == INPUT_PREV)) {
+            stepPageBook(action == INPUT_NEXT);
+            return;
+        }
+#endif
         if (action == INPUT_NEXT) nextPage();
         else if (action == INPUT_PREV) prevPage();
         else if (action == INPUT_SELECT) {
@@ -708,6 +749,12 @@ void AppReader::handleInput(InputAction action) {
 void AppReader::handleTouch(uint16_t x, uint16_t y) {
     if (_state == VIEW_READING) {
         _pageTurnStartedAt = millis();
+#if BOOK32_HAS_PAGE_BOOKS
+        if (_pageBook) {
+            pageBookTouch(x, y);
+            return;
+        }
+#endif
         // Invisible page-turn zones cover the outer thirds of the page.
         if (x < SCREEN_WIDTH / 3) prevPage();
         else if (x >= (SCREEN_WIDTH * 2) / 3) nextPage();
@@ -762,6 +809,9 @@ bool AppReader::openBook(const String& path, bool restoreProgress) {
     closeBook(false);
     _currentBookPath = path;
     _currentBookFingerprint = fingerprintBook(path, _currentBookSize);
+#if BOOK32_HAS_PAGE_BOOKS
+    if (PageBook::isPageBookName(path)) return openPageBook(path, restoreProgress);
+#endif
     _epubLoader = new EpubLoader();
     if (!_epubLoader->open(fullPath.c_str())) {
         delete _epubLoader;
@@ -870,6 +920,19 @@ bool AppReader::loadBookProgress(const String& path, int& chapter, PagePointer& 
     return true;
 }
 
+int AppReader::loadPageProgress(const String& path) {
+    File file = EbookFS.open(READER_PROGRESS_PATH, "r");
+    if (!file) return 0;
+    DynamicJsonDocument doc(4096);
+    const bool parsed = !deserializeJson(doc, file);
+    file.close();
+    if (!parsed) return 0;
+    JsonObject saved = doc["books"][path];
+    if (saved.isNull() || (saved.containsKey("bookFingerprint") &&
+                           saved["bookFingerprint"].as<uint32_t>() != _currentBookFingerprint)) return 0;
+    return saved["pageIndex"] | 0;
+}
+
 void AppReader::queueProgressSave() {
     _progressSavePending = true;
     _lastPageTurnAt = millis();
@@ -892,6 +955,16 @@ void AppReader::saveReadingProgress(bool resumeOnBoot) {
     doc["resumeOnBoot"] = resumeOnBoot;
     JsonObject books = doc["books"].is<JsonObject>() ? doc["books"].as<JsonObject>() : doc.createNestedObject("books");
     JsonObject saved = books[_currentBookPath].is<JsonObject>() ? books[_currentBookPath].as<JsonObject>() : books.createNestedObject(_currentBookPath);
+#if BOOK32_HAS_PAGE_BOOKS
+    if (_pageBook) {
+        saved["pageIndex"] = _pageIndex;
+        saved["pageCount"] = _pageBook->pageCount();
+        saved["chapter"] = 0;
+        saved["bookFingerprint"] = _currentBookFingerprint;
+        saved["globalPage"] = _pageIndex + 1;
+        saved["updatedAt"] = millis();
+    } else {
+#endif
     saved["chapter"] = _currentChapter;
     saved["nodeIndex"] = _currentPagePointer.nodeIndex;
     saved["charOffset"] = _currentPagePointer.charOffset;
@@ -900,6 +973,9 @@ void AppReader::saveReadingProgress(bool resumeOnBoot) {
     saved["bookFingerprint"] = _currentBookFingerprint;
     saved["globalPage"] = _globalPageNumber;
     saved["updatedAt"] = millis();
+#if BOOK32_HAS_PAGE_BOOKS
+    }
+#endif
 
     File file = EbookFS.open(READER_PROGRESS_PATH, FILE_WRITE);
     if (file) {
@@ -938,6 +1014,9 @@ void AppReader::closeBook(bool markInactive) {
     _progressSavePending = false;
     if (_epubLoader) { _epubLoader->close(); delete _epubLoader; _epubLoader = nullptr; }
     if (_textRenderer) { delete _textRenderer; _textRenderer = nullptr; }
+#if BOOK32_HAS_PAGE_BOOKS
+    closePageBook();
+#endif
     _pageHistory.clear(); _chapterPageCounts.clear(); _totalBookPages = 0;
     _currentRichContent.clear();
     _currentBookPath = "";
@@ -1083,6 +1162,9 @@ void AppReader::draw() {
     if (!_needsRedraw) return;
     _needsRedraw = false;
     if (_state == VIEW_LIBRARY) drawLibrary();
+#if BOOK32_HAS_PAGE_BOOKS
+    else if (_pageBook) drawPageBook(false);
+#endif
     else drawReading();
 }
 
@@ -1382,6 +1464,13 @@ void AppReader::drawReading() {
 }
 
 void AppReader::update() {
+#if BOOK32_HAS_PAGE_BOOKS
+    if (_state == VIEW_READING && _pageBook) {
+        pollPageGestures();
+        // Once the page is up and nothing is happening, prepare the next one.
+        if (!_needsRedraw && !_gestureActive && millis() - _pageDrawnAt > 150) prefetchNextPage();
+    }
+#endif
     // Library rendering is static unless input changes selection.
     if (_progressSavePending && millis() - _lastPageTurnAt >= PROGRESS_SAVE_DELAY_MS) {
         const unsigned long startedAt = millis();

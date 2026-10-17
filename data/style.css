@@ -149,3 +149,8 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px r
 .rom-actions small { flex-shrink: 0; color: var(--muted); white-space: nowrap; }
 .rom-delete:disabled, #rom-upload-button:disabled, #rom-refresh-button:disabled { opacity: .5; cursor: wait; transform: none; }
 .gamepad-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }.gamepad-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line, #ddd); border-radius: 10px; font-size: 14px; overflow-wrap: anywhere; }
+.switch { appearance: none; position: relative; flex: 0 0 auto; width: 44px; height: 24px; margin: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-raised); cursor: pointer; transition: background .16s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .16s, background .16s; }
+.switch:checked { border-color: rgba(63, 185, 150, .55); background: var(--accent-soft); }
+.switch:checked::after { transform: translateX(20px); background: var(--accent); }
+.switch:disabled { opacity: .45; cursor: not-allowed; }

@@ -148,6 +148,14 @@
 #else
 #define BOOK32_HAS_INKBOY 0
 #endif
+
+// Page books in the eReader (CBZ manga, and PDFs converted when uploaded),
+// with pinch to zoom: the touch boards, which keep books on a MicroSD card.
+#if BOOK32_HAS_TOUCH && BOOK32_HAS_SD
+#define BOOK32_HAS_PAGE_BOOKS 1
+#else
+#define BOOK32_HAS_PAGE_BOOKS 0
+#endif
 // Boards whose Inkade video is the port of InkBoy's drive (320x288 window on
 // an 800x480 panel).
 #if defined(BOARD_SEEED_STICKY)

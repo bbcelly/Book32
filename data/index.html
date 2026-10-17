@@ -43,7 +43,7 @@
             </section>
 
             <section id="ereader" class="tab-content">
-                <div class="page-heading"><p class="eyebrow">Reading</p><h1>Ereader library</h1><p>Choose how books look and manage your EPUB collection.</p></div>
+                <div class="page-heading"><p class="eyebrow">Reading</p><h1>Ereader library</h1><p>Choose how books look and manage your EPUB collection<span class="page-books-only hidden">, PDFs and manga</span>.</p></div>
                 <article class="card section-card">
                     <div class="card-heading"><div><h2>Reader appearance</h2><p>Selections apply to book text and reflow pages automatically.</p></div></div>
                     <fieldset class="choice-fieldset">
@@ -69,6 +69,8 @@
                             <label class="choice-card footer-choice" for="show-reading-percentage"><input type="checkbox" id="show-reading-percentage" checked><span class="choice-check">✓</span><span class="footer-preview">37%</span><strong>Progress</strong><small>Show percentage read</small></label>
                         </div>
                     </fieldset>
+                    <div class="inline-setting page-books-only hidden"><div><label for="manga-rtl">Manga page order</label><p>PDFs and comics: turn pages right to left, as in Japanese manga.</p></div><input type="checkbox" class="switch" id="manga-rtl" aria-label="Right-to-left page order"></div>
+                    <div class="inline-setting lilygo-gray-only hidden"><div><label for="gray-pages">Grayscale pages</label><p>PDFs and comics in 16 shades of gray. Each page then uses a full refresh; off is faster but dithered.</p></div><input type="checkbox" class="switch" id="gray-pages" aria-label="Grayscale pages" checked></div>
                     <div class="inline-setting"><div><label for="refresh-rate">Full refresh interval</label><p>Clear the display completely after this many page turns.</p></div><div class="number-control"><input type="number" id="refresh-rate" min="1" max="100" value="15"><span>pages</span></div></div>
                     <div class="action-row"><button class="btn primary" onclick="saveReaderSettings()">Save reader settings</button><div id="reader-settings-status" class="status-msg" role="status"></div></div>
                 </article>
@@ -80,7 +82,7 @@
                 </article>
 
                 <div class="content-grid">
-                    <article class="card section-card"><div class="card-heading"><div><h2>Upload a book</h2><p>Add EPUB files to your reader.</p></div></div><input type="file" id="book-file" accept=".epub,.ttf"><button class="btn primary" onclick="uploadBook()">Upload file</button><div id="upload-progress" class="progress-container hidden"><div id="upload-progress-bar" class="progress-bar"></div></div><div id="upload-status" class="status-msg" role="status"></div></article>
+                    <article class="card section-card"><div class="card-heading"><div><h2>Upload a book</h2><p id="upload-hint">Add EPUB files to your reader.</p></div></div><input type="file" id="book-file" accept=".epub,.ttf"><button class="btn primary" onclick="uploadBook()">Upload file</button><div id="upload-progress" class="progress-container hidden"><div id="upload-progress-bar" class="progress-bar"></div></div><div id="upload-status" class="status-msg" role="status"></div></article>
                     <article class="card section-card"><div class="card-heading"><div><h2>Your books</h2><p>Files currently stored on InkDeck.</p></div></div><div id="book-list"><p class="hint">Loading…</p></div></article>
                 </div>
             </section>
@@ -179,6 +181,7 @@
         </main>
         <footer class="section-card"><a href="https://github.com/rolohaun/Book32/releases/tag/v1.4.3" target="_blank" rel="noopener noreferrer">InkDeck 1.4.3 — source code &amp; licenses (AGPLv3+)</a></footer>
     </div>
+    <script src="pages.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

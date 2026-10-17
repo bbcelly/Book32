@@ -5,6 +5,8 @@
 #include "EpubLoader.h"
 #include "TextRenderer.h"
 #include "ReaderPageCache.h"
+#include "PageBook.h"
+#include "PageView.h"
 #include "../../Book32_Core/InputMgr.h"
 #include <vector>
 #include <map>
@@ -139,6 +141,59 @@ private:
     void rememberCurrentPage();
     void rebuildPageHistory();
     void resetPageCacheForLayout();
+
+    // Page books (AppReaderPages.cpp): CBZ manga and converted PDFs, one
+    // page image at a time with pinch to zoom.
+    PageBook* _pageBook = nullptr;
+    int _pageIndex = 0;
+    // The current page: its compressed image, the screen-size picture shown
+    // when not zoomed (quick: JPEGs decode straight to half size), and the
+    // picture at up to twice the screen size, decoded on the first zoom.
+    uint8_t* _pageData = nullptr;
+    size_t _pageDataSize = 0;
+    uint8_t* _pageFit = nullptr;
+    int _pageFitW = 0, _pageFitH = 0;
+    uint8_t* _pageGray = nullptr;
+    int _pageGrayW = 0, _pageGrayH = 0;
+    PageView _pageView;
+    bool _rightToLeft = false;     // Manga order: next is on the left
+    bool _grayPages = true;        // LILYGO: finished page views in 16 grays
+    int loadPageProgress(const String& path);
+#if BOOK32_HAS_PAGE_BOOKS
+    bool openPageBook(const String& path, bool restoreProgress);
+    void closePageBook();
+    bool loadPageImage(bool keepZoom, bool forward);
+    bool ensureFullPage();
+    void freePage();
+    // The next page in reading order, read and decoded while the current one
+    // is on screen, so turning only waits for the display.
+    struct PreparedPage {
+        int index = -1;
+        uint8_t* data = nullptr;
+        size_t size = 0;
+        uint8_t* fit = nullptr;
+        int fitW = 0, fitH = 0, width = 0, height = 0;
+    };
+    PreparedPage _nextPage;
+    bool _lastTurnForward = true;
+    unsigned long _pageDrawnAt = 0;
+    void preparePage(int index, PreparedPage& page);
+    static void freePrepared(PreparedPage& page);
+    void prefetchNextPage();
+    bool turnPageBook(bool forward, bool keepZoom);
+    void stepPageBook(bool forward);
+    void pageBookTouch(uint16_t x, uint16_t y);
+    void pollPageGestures();
+    void drawPageBook(bool preview);
+    // Gesture state
+    bool _gestureActive = false, _gestureMoved = false, _gestureConsumed = false;
+    bool _gestureViewChanged = false, _viewChangedSincePreview = false, _gesturePreviewed = false;
+    bool _pinchActive = false;
+    uint8_t _gestureFingers = 0;
+    int _dragStartX = 0, _dragStartY = 0, _dragLastX = 0, _dragLastY = 0;
+    float _pinchStartDistance = 1, _pinchStartZoom = 1, _pinchPageX = 0, _pinchPageY = 0;
+    unsigned long _gestureEndedAt = 0, _gestureZeroSince = 0, _lastPreviewAt = 0;
+#endif
 };
 
 #endif
