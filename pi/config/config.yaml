@@ -1,75 +1,56 @@
-# PiBook E-Reader Configuration
-# This file works identically on Pi 3B+ and Pi Zero 2 W
+# InkDeck for Raspberry Pi: hardware and system configuration.
+#
+# This file holds the defaults and is replaced by updates. To change a value
+# on your device, put just that value in config/local.yaml (same layout); it
+# overrides this file and updates leave it alone. Reading and power settings
+# you change in the web interface are kept in data/settings.json.
 
 display:
-  width: 480
+  width: 480                  # Logical size after rotation (portrait)
   height: 800
-  rotation: 90                # Rotate 90 degrees for portrait mode
-  dpi: 150                    # DPI for PyMuPDF rendering
-  partial_refresh: true       # Use partial refresh for page turns
-  full_refresh_interval: 10   # Full refresh every N page turns (higher = more battery savings)
+  rotation: 90                # The 800 x 480 panel is mounted in portrait
 
 library:
-  books_directory: "/home/pi/PiBook/books"
-  items_per_page: 4               # Reduced to 4 for larger covers (100x150)
-  font_size: 20               # For library menu rendering only
+  books_directory: books      # Relative to the app folder; ~ is allowed
 
 reader:
-  page_cache_size: 3          # Reduced from 5 for better battery life
-  zoom: 1.0                   # Page zoom factor (1.0 = fit to screen)
+  page_cache_size: 3          # Rendered pages kept in memory
 
 performance:
-  gc_threshold: 50            # Aggressive GC for battery savings
-  gc_on_page_turn: true       # Force GC after page turn
-  preload_next_page: false    # Disabled for battery savings
+  gc_on_page_turn: true       # Collect garbage after each page turn (Pi Zero RAM)
 
 logging:
-  level: "DEBUG"              # Changed from WARNING for troubleshooting
-  file: "/home/pi/PiBook/logs/pibook.log"  # Persistent log file (not /tmp)
-  console: true               # Enable console output for debugging
-  max_size: "10MB"            # Increased from 1MB for more history
+  level: INFO                 # DEBUG, INFO, WARNING or ERROR
+  file: logs/inkdeck.log      # Relative to the app folder
+  max_bytes: 2000000          # Rotated at this size, with two old files kept
+  console: true               # Also log to the console (journalctl)
 
 web:
-  port: 5000                  # Web interface port
-  enabled: true               # Enable web server
-  always_on: false            # Disable during sleep for battery savings
-  start_on_boot: true         # Start when app starts
+  port: 5000
+
+buttons:
+  toggle:
+    pin: 5                    # BCM GPIO 5 (physical pin 29), button to GND
+    pull: up
+    bounce_time: 0.2          # Seconds
+    long_press: 0.8           # Seconds held for a long press
+
+keyboard:
+  enabled: true               # Bluetooth or USB keyboard via evdev
+  device_pattern: null        # Only use keyboards whose name contains this
 
 battery:
-  enabled: true               # Enable/disable battery monitoring
-  # Backend auto-detected: pisugar2 → ads1115 → mock
-  # ADS1115 settings (only used if PiSugar2 not detected)
-  adc_channel: 0              # ADC channel (0-3 for ADS1115)
-  voltage_divider_ratio: 2.0  # Voltage divider ratio (2:1)
-  min_voltage: 3.0            # Battery empty voltage (V)
-  max_voltage: 4.2            # Battery full voltage (V)
+  enabled: true               # Backend is detected: PiSugar 2, then ADS1115
   update_interval: 30         # Seconds between readings
-  show_percentage: true       # Show percentage number
-  low_battery_threshold: 20   # Warning threshold (%)
+  adc_channel: 0              # ADS1115 only
+  voltage_divider_ratio: 2.0  # ADS1115 only
+  min_voltage: 3.0            # ADS1115 only: empty
+  max_voltage: 4.2            # ADS1115 only: full
 
 pisugar:
-  socket_path: "/tmp/pisugar-server.sock"  # PiSugar2 server socket
-  button_enabled: true        # Enable PiSugar2 button integration
-  button_socket_path: "/tmp/pibook-button.sock"  # IPC socket for button events
+  socket_path: /tmp/pisugar-server.sock
+  button_enabled: true        # Accept button commands on the socket below
+  button_socket_path: /tmp/inkdeck-button.sock
 
-# Power Management (Battery Optimization)
 power:
-  mode: "balanced"            # Options: maximum_battery, balanced, performance
-  sleep_timeout: 120          # Seconds of inactivity before sleep (2 minutes)
-  cpu_scaling: true           # Enable CPU frequency scaling
-  wifi_power_save: true       # Enable WiFi power management
-  single_core_reading: true   # Disable 3 CPU cores during reading for battery savings
-  # CPU Undervolting (EXPERIMENTAL - reduces power consumption)
-  # WARNING: Setting too low may prevent boot! Have SD card reader ready for recovery.
-  # Range: 0 to -8 (each step = -25mV)
-  # Start conservative: -2 (50mV reduction), test stability before increasing
-  # Forum reference: https://forums.raspberrypi.com/viewtopic.php?t=324988
-  undervolt: -2               # -2 = 50mV reduction (safe starting point for Pi Zero 2 W)
-  # More aggressive: -4 to -6 (100-150mV) after stability testing
-  # Maximum tested: -8 (200mV) - forum user achieved 1.06W from 2.07W on Pi Zero 2 W
-
-reading_progress:
-  enabled: true               # Enable reading position tracking
-  save_on_page_turn: true     # Save after each page turn
-  save_on_sleep: true         # Save when entering sleep
-  progress_file: "data/reading_progress.json"
+  single_core_reading: true   # Take extra CPU cores offline while reading

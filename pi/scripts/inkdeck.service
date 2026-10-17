@@ -1,0 +1,16 @@
+# Installed by scripts/install.sh, which fills in the user and folder.
+[Unit]
+Description=InkDeck for Raspberry Pi
+After=network.target pisugar-server.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@APP_DIR@
+ExecStart=/usr/bin/python3 -m inkdeck
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

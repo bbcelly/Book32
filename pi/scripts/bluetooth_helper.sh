@@ -1,16 +1,18 @@
 #!/bin/bash
-# Bluetooth Helper Script for PiBook
+# Bluetooth Helper Script for InkDeck
 # Provides sudo access for Bluetooth operations
 
 case "$1" in
     power_on)
         echo "Powering on Bluetooth..."
-        rfkill unblock bluetooth 2>&1
+        command -v rfkill >/dev/null && rfkill unblock bluetooth 2>&1
+        bluetoothctl power on 2>&1
         echo "Bluetooth powered on"
         ;;
     power_off)
         echo "Powering off Bluetooth..."
-        rfkill block bluetooth 2>&1
+        bluetoothctl power off 2>&1
+        command -v rfkill >/dev/null && rfkill block bluetooth 2>&1
         echo "Bluetooth powered off"
         ;;
     scan_on)

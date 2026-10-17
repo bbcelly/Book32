@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0d1117">
+    <title>InkDeck</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/inkdeck.css') }}?v={{ version }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+</head>
+<body>
+<div class="app-shell">
+    <aside class="sidebar">
+        <a class="brand" href="#dashboard" onclick="showTab('dashboard'); return false;" aria-label="InkDeck dashboard">
+            <span class="brand-mark" aria-hidden="true">ID</span>
+            <span><strong>InkDeck</strong><small>Raspberry Pi · by Rolohaun</small></span>
+        </a>
+        <nav aria-label="InkDeck sections">
+            <ul class="nav-links">
+                <li><button class="active" data-tab="dashboard"><span>⌂</span>Dashboard</button></li>
+                <li><button data-tab="ereader"><span>▤</span>eReader</button></li>
+                <li><button data-tab="todo"><span>✓</span>To Do</button></li>
+                <li><button data-tab="network"><span>⌖</span>Network</button></li>
+                <li><button data-tab="klipper"><span>◫</span>Klipper</button></li>
+                <li><button data-tab="settings"><span>⚙</span>Settings</button></li>
+                <li><button data-tab="terminal"><span>›_</span>Terminal</button></li>
+                <li><button data-tab="logs"><span>≡</span>Logs</button></li>
+            </ul>
+        </nav>
+        <div class="version">InkDeck for Raspberry Pi v{{ version }}</div>
+    </aside>
+
+    <main class="content">
+        <header class="top-bar">
+            <div class="page-brand">InkDeck <span>Raspberry Pi Zero 2 W · Waveshare 7.5″</span></div>
+            <div class="battery-status" aria-label="Battery status"><span id="header-battery">--</span><i class="battery-icon" id="battery-icon" data-level="100"></i></div>
+        </header>
+
+        <!-- Dashboard -->
+        <section id="dashboard" class="tab-content active">
+            <div class="page-heading"><p class="eyebrow">Device overview</p><h1>System status</h1><p>Live readings from the Pi.</p></div>
+            <div class="stats-grid">
+                <article class="card stat"><span class="stat-icon">↯</span><div><h3>Battery</h3><p id="stat-battery">--</p></div></article>
+                <article class="card stat"><span class="stat-icon">◷</span><div><h3>Uptime</h3><p id="stat-uptime">--</p></div></article>
+                <article class="card stat"><span class="stat-icon">▰</span><div><h3>Free space</h3><p id="stat-disk">--</p></div></article>
+                <article class="card stat"><span class="stat-icon">°</span><div><h3>CPU temperature</h3><p id="stat-temp">--</p></div></article>
+                <article class="card stat"><span class="stat-icon">≋</span><div><h3>Memory used</h3><p id="stat-memory">--</p></div></article>
+                <article class="card stat"><span class="stat-icon">⚡</span><div><h3>CPU</h3><p id="stat-cpu">--</p></div></article>
+            </div>
+            <div class="card section-card details-card">
+                <div class="card-heading"><div><h2>Details</h2><p>Power and network state.</p></div><button class="btn secondary" onclick="refreshStats()">Refresh</button></div>
+                <dl class="details">
+                    <div><dt>Address</dt><dd id="stat-ip">--</dd></div>
+                    <div><dt>Wi-Fi</dt><dd id="stat-wifi">--</dd></div>
+                    <div><dt>Bluetooth</dt><dd id="stat-bluetooth">--</dd></div>
+                    <div><dt>Core voltage</dt><dd id="stat-voltage">--</dd></div>
+                    <div><dt>Undervolt</dt><dd id="stat-undervolt">--</dd></div>
+                    <div><dt>Throttling</dt><dd id="stat-throttle">--</dd></div>
+                    <div><dt>CPU cores online</dt><dd id="stat-cores">--</dd></div>
+                    <div><dt>Operating system</dt><dd id="stat-os">--</dd></div>
+                </dl>
+                <div class="action-row"><a class="btn secondary" id="pisugar-link" target="_blank" rel="noopener">PiSugar battery manager ↗</a></div>
+            </div>
+        </section>
+
+        <!-- eReader -->
+        <section id="ereader" class="tab-content">
+            <div class="page-heading"><p class="eyebrow">Library</p><h1>eReader</h1><p>Upload EPUB books, control the reader and tune how pages look.</p></div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>Remote control</h2><p>Works like the device's buttons. While a book is open, Wi-Fi turns off unless you keep it on in Reading settings.</p></div></div>
+                <div class="remote">
+                    <button class="btn secondary" onclick="remote('prev')">◀ Previous</button>
+                    <button class="btn primary" onclick="remote('select')">Select</button>
+                    <button class="btn secondary" onclick="remote('next')">Next ▶</button>
+                    <button class="btn secondary" onclick="remote('back')">Back</button>
+                    <button class="btn secondary" onclick="remote('home')">Menu</button>
+                </div>
+                <p class="status-msg" id="remote-status"></p>
+            </div>
+            <div class="content-grid">
+                <div class="card section-card">
+                    <div class="card-heading"><div><h2>Upload books</h2><p>EPUB files, one or several at a time.</p></div></div>
+                    <input type="file" id="book-file" accept=".epub" multiple>
+                    <button class="btn primary" id="upload-button" onclick="uploadBooks()">Upload</button>
+                    <div class="progress-container hidden" id="upload-progress"><div class="progress-bar" id="upload-bar"></div></div>
+                    <p class="status-msg" id="upload-status"></p>
+                </div>
+                <div class="card section-card">
+                    <div class="card-heading"><div><h2>Books</h2><p id="book-count">{{ books|length }} on the device</p></div></div>
+                    <div id="book-list">
+                        {% for book in books %}
+                        <div class="book-item"><span class="book-title">{{ book.title }}</span><span class="book-size">{{ book.size }}</span><button class="btn-delete" data-file="{{ book.filename }}">Delete</button></div>
+                        {% else %}
+                        <p class="hint">No books yet.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>Reading settings</h2><p>Changes apply straight away, also to an open book.</p></div></div>
+                <form class="settings-form" data-status="reader-status">
+                    <div class="inline-setting"><div><label for="zoom">Text size</label><p>0.5 to 2.0; 1.0 is the standard size.</p></div><div class="number-control"><input type="number" id="zoom" name="zoom" value="{{ settings.zoom }}" min="0.5" max="2" step="0.1"> ×</div></div>
+                    <div class="inline-setting"><div><label for="full_refresh_interval">Full refresh every</label><p>Page turns between full refreshes, which clear ghosting.</p></div><div class="number-control"><input type="number" id="full_refresh_interval" name="full_refresh_interval" value="{{ settings.full_refresh_interval }}" min="1" max="50"> pages</div></div>
+                    <div class="inline-setting"><div><label for="items_per_page">Books per library page</label><p>3 to 6.</p></div><div class="number-control"><input type="number" id="items_per_page" name="items_per_page" value="{{ settings.items_per_page }}" min="3" max="6"></div></div>
+                    <div class="inline-setting"><div><label for="show_page_numbers">Page numbers</label><p>“Page X of Y” at the bottom of each page.</p></div><input type="checkbox" class="switch" id="show_page_numbers" name="show_page_numbers" {% if settings.show_page_numbers %}checked{% endif %}></div>
+                    <div class="inline-setting"><div><label for="wifi_while_reading">Keep Wi-Fi on while reading</label><p>Off saves battery: Wi-Fi turns off while a book is open and back on when you leave it.</p></div><input type="checkbox" class="switch" id="wifi_while_reading" name="wifi_while_reading" {% if settings.wifi_while_reading %}checked{% endif %}></div>
+                    <div class="action-row"><button class="btn primary" type="submit">Save reading settings</button><span class="status-msg" id="reader-status"></span></div>
+                </form>
+            </div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>Reading positions</h2><p>Reset a book to start it from the beginning.</p></div><button class="btn danger-outline" onclick="resetProgress('__all__')">Reset all</button></div>
+                <div id="progress-list"><p class="hint">Loading…</p></div>
+            </div>
+        </section>
+
+        <!-- To Do -->
+        <section id="todo" class="tab-content">
+            <div class="page-heading"><p class="eyebrow">Tasks</p><h1>To Do</h1><p>Tasks appear on the device's To Do screen, where you can check them off.</p></div>
+            <div class="card section-card">
+                <div class="todo-input-container"><input type="text" id="todo-input" placeholder="New task" maxlength="500"><button class="btn primary" onclick="addTodo()">Add task</button></div>
+                <div class="action-row"><button class="btn secondary" onclick="remote('open_todo')">Show To Do on the device</button></div>
+            </div>
+            <div class="card section-card"><div id="todo-list"><p class="hint">Loading…</p></div></div>
+        </section>
+
+        <!-- Network -->
+        <section id="network" class="tab-content">
+            <div class="page-heading"><p class="eyebrow">Tools</p><h1>Network scanner</h1><p>Find the devices on your local network.</p></div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>Devices <span class="count-badge" id="device-count">0</span></h2><p id="local-ip"></p></div><button class="btn primary" id="network-scan-button" onclick="startNetworkScan()">Scan</button></div>
+                <div class="progress-container hidden" id="network-progress"><div class="progress-bar" id="network-bar"></div></div>
+                <div id="device-list"><p class="hint">Scan to list the devices on your network.</p></div>
+            </div>
+        </section>
+
+        <!-- Klipper -->
+        <section id="klipper" class="tab-content">
+            <div class="page-heading"><p class="eyebrow">3D printing</p><h1>Klipper printers</h1><p>Printers running Moonraker (Mainsail, Fluidd) on your network.</p></div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>Printers <span class="count-badge" id="printer-count">0</span></h2><p id="klipper-status"></p></div><button class="btn primary" id="klipper-scan-button" onclick="startKlipperScan()">Scan</button></div>
+                <div class="progress-container hidden" id="klipper-progress"><div class="progress-bar" id="klipper-bar"></div></div>
+                <div id="printer-list" class="printer-grid"><p class="hint">Scan to find printers.</p></div>
+            </div>
+        </section>
+
+        <!-- Settings -->
+        <section id="settings" class="tab-content">
+            <div class="page-heading"><p class="eyebrow">Configuration</p><h1>Settings</h1><p>Sleep, Bluetooth and power options.</p></div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>Sleep and shutdown</h2><p>The device sleeps after a period without input; any button wakes it.</p></div></div>
+                <form class="settings-form" data-status="sleep-status">
+                    <div class="inline-setting"><div><label for="sleep_enabled">Sleep when idle</label><p>Wi-Fi turns off while asleep unless you keep it on while reading.</p></div><input type="checkbox" class="switch" id="sleep_enabled" name="sleep_enabled" {% if settings.sleep_enabled %}checked{% endif %}></div>
+                    <div class="inline-setting"><div><label for="sleep_timeout">Sleep after</label><p>30 to 3600 seconds without input.</p></div><div class="number-control"><input type="number" id="sleep_timeout" name="sleep_timeout" value="{{ settings.sleep_timeout }}" min="30" max="3600" step="30"> s</div></div>
+                    <label class="text-field"><span>Sleep screen message</span><input type="text" name="sleep_message" value="{{ settings.sleep_message }}" maxlength="50"></label>
+                    <label class="text-field"><span>Shutdown screen message</span><input type="text" name="shutdown_message" value="{{ settings.shutdown_message }}" maxlength="20"></label>
+                    <div class="action-row"><button class="btn primary" type="submit">Save</button><span class="status-msg" id="sleep-status"></span></div>
+                </form>
+            </div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>Bluetooth</h2><p id="bluetooth-note">For a keyboard. Bluetooth uses extra power.</p></div><input type="checkbox" class="switch" id="bluetooth-power" aria-label="Bluetooth"></div>
+                <div id="bluetooth-controls" class="hidden">
+                    <div class="action-row"><button class="btn secondary" id="bluetooth-scan-button" onclick="toggleBluetoothScan()">Scan for devices</button></div>
+                    <h3 class="subhead">Paired devices</h3>
+                    <ul class="device-list" id="paired-devices"></ul>
+                    <div id="bluetooth-scan" class="hidden"><h3 class="subhead">Found nearby <span class="spinner"></span></h3><ul class="device-list" id="found-devices"></ul></div>
+                    <p class="status-msg" id="bluetooth-status"></p>
+                </div>
+            </div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>CPU power <span class="tag warning">Experimental</span></h2><p>Both take effect after a reboot. Too much undervolting can stop the Pi from booting; keep an SD card reader handy.</p></div></div>
+                <form class="settings-form" data-status="cpu-status">
+                    <div class="inline-setting"><div><label for="boot_cores">CPU cores at boot</label><p>Pi Zero 2 W: about 2 W with 4 cores, 1.5 W with 2, 1 W with 1.</p></div>
+                        <select id="boot_cores" name="boot_cores" class="compact-select">
+                            {% for n in [4, 3, 2, 1] %}<option value="{{ n }}" {% if settings.boot_cores == n %}selected{% endif %}>{{ n }} core{% if n > 1 %}s{% endif %}</option>{% endfor %}
+                        </select></div>
+                    <div class="inline-setting"><div><label for="undervolt">Undervolt</label><p>0 is none; each step is 25 mV lower (−2 is a safe start, −8 the most).</p></div><div class="number-control"><input type="number" id="undervolt" name="undervolt" value="{{ settings.undervolt }}" min="-8" max="0"></div></div>
+                    <div class="action-row"><button class="btn primary" type="submit">Save</button><button class="btn danger-outline" type="button" onclick="rebootDevice()">Reboot</button><span class="status-msg" id="cpu-status"></span></div>
+                </form>
+            </div>
+        </section>
+
+        <!-- Terminal -->
+        <section id="terminal" class="tab-content">
+            <div class="page-heading"><p class="eyebrow">Advanced</p><h1>Terminal</h1><p>Runs commands on the Pi in the InkDeck folder. “update” fetches the latest version.</p></div>
+            <div class="card section-card">
+                <div class="quick-commands">
+                    {% for cmd in ['update', 'git status', 'df -h', 'free -h', 'sudo systemctl restart inkdeck'] %}<button class="chip" data-command="{{ cmd }}">{{ cmd }}</button>{% endfor %}
+                </div>
+                <pre id="terminal-output" class="console">Type a command below.</pre>
+                <div class="todo-input-container"><input type="text" id="terminal-input" placeholder="Command" autocomplete="off" spellcheck="false"><button class="btn primary" onclick="runCommand()">Run</button><button class="btn secondary" onclick="clearTerminal()">Clear</button></div>
+            </div>
+        </section>
+
+        <!-- Logs -->
+        <section id="logs" class="tab-content">
+            <div class="page-heading"><p class="eyebrow">Advanced</p><h1>Logs</h1><p>The newest entries are at the bottom.</p></div>
+            <div class="card section-card">
+                <div class="card-heading"><div class="segmented"><button class="active" data-log="app">App log</button><button data-log="system">Service log</button></div><button class="btn secondary" onclick="loadLogs()">Refresh</button></div>
+                <pre id="log-output" class="console tall">Loading…</pre>
+            </div>
+        </section>
+    </main>
+</div>
+
+<div id="pin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pin-title">
+    <div class="card modal-card">
+        <h2 id="pin-title">Pair device</h2>
+        <p id="pin-message" class="hint"></p>
+        <p id="pin-passkey" class="passkey hidden"></p>
+        <input type="text" id="pin-input" placeholder="PIN, such as 0000" inputmode="numeric">
+        <div class="action-row"><button class="btn secondary" onclick="closePinModal()">Close</button><button class="btn primary" id="pin-submit" onclick="submitPin()">Pair</button></div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/inkdeck.js') }}?v={{ version }}"></script>
+</body>
+</html>

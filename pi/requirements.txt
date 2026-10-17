@@ -1,10 +1,11 @@
-Pillow>=10.0.0
-gpiozero>=2.0
-spidev>=3.6
+# Python packages for InkDeck for Raspberry Pi (installed by scripts/install.sh).
+Pillow>=10.1
 PyYAML>=6.0
-Flask>=3.0.0
+Flask>=3.0
 EbookLib>=0.18
-beautifulsoup4>=4.12.0
-cairosvg>=2.7.0
-adafruit-circuitpython-ads1x15>=2.2.0
-evdev>=1.6.0
+beautifulsoup4>=4.12
+cairosvg>=2.7            # SVG images in books
+gpiozero>=2.0            # The GPIO button
+spidev>=3.6              # The e-paper panel
+evdev>=1.6               # Keyboards
+# adafruit-circuitpython-ads1x15>=2.2   # Only for an ADS1115 battery monitor instead of a PiSugar

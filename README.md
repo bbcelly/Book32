@@ -18,6 +18,11 @@ Install it from your browser with the
 The LILYGO build supports the H752-01 / Pro Lite revision only, not the older
 H752 board.
 
+**Raspberry Pi:** [InkDeck for Raspberry Pi](pi/README.md) (formerly PiBook)
+is a separate Python edition for a Raspberry Pi Zero 2 W with the Waveshare
+7.5 inch e-Paper HAT. It is complete and installs from this repository; it is
+not updated with the ESP32 releases.
+
 ## Features
 
 - **eReader** for EPUB books, with illustrations, cover thumbnails and saved
