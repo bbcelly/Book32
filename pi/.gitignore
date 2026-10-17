@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/*.log
+
+# Cache
+cache/
+*.cache
+
+# Books (don't commit EPUBs)
+books/*.epub
+
+# Output
+output/
+# Ignore PNG files except for assets
+*.png
+!assets/**/*.png
+!src/web/static/images/*.png
+!docs/**/*.png
+
+# Waveshare library (downloaded during install)
+lib/e-Paper/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config overrides
+config/local.yaml
