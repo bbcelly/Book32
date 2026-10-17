@@ -115,7 +115,7 @@
                             {% endfor %}
                         </div>
                     </fieldset>
-                    <div class="inline-setting"><div><label for="book_fonts">Book's own fonts</label><p>Use fonts built into a book instead of the reading font, when it has them.</p></div><input type="checkbox" class="switch" id="book_fonts" name="book_fonts" {% if settings.book_fonts %}checked{% endif %}></div>
+                    <div class="inline-setting"><div><label for="book_fonts">Book's own fonts</label><p>Some books have their own fonts built in. On, they replace the reading font for those books.</p></div><input type="checkbox" class="switch" id="book_fonts" name="book_fonts" {% if settings.book_fonts %}checked{% endif %}></div>
                     <div class="inline-setting"><div><label for="full_refresh_interval">Full refresh every</label><p>Page turns between full refreshes, which clear ghosting.</p></div><div class="number-control"><input type="number" id="full_refresh_interval" name="full_refresh_interval" value="{{ settings.full_refresh_interval }}" min="1" max="50"> pages</div></div>
                     <div class="inline-setting"><div><label for="items_per_page">Books per library page</label><p>3 to 6.</p></div><div class="number-control"><input type="number" id="items_per_page" name="items_per_page" value="{{ settings.items_per_page }}" min="3" max="6"></div></div>
                     <div class="inline-setting"><div><label for="show_chapter">Chapter</label><p>The current chapter, bottom left of each page.</p></div><input type="checkbox" class="switch" id="show_chapter" name="show_chapter" {% if settings.show_chapter %}checked{% endif %}></div>

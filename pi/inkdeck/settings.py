@@ -8,7 +8,7 @@ from .paths import data_path, load_json, save_json
 DEFAULTS = {
     "zoom": 1.0,
     "font_family": "serif",
-    "book_fonts": True,
+    "book_fonts": False,
     "full_refresh_interval": 10,
     "show_chapter": True,
     "show_page_numbers": True,

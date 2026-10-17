@@ -113,7 +113,7 @@ def _flatten_toc(entries, depth=0):
 class PillowTextRenderer:
     def __init__(self, epub_path: str, width: int = 480, height: int = 800,
                  zoom_factor: float = 1.0, progress_callback=None, font_family: str = "serif",
-                 book_fonts: bool = True):
+                 book_fonts: bool = False):
         self.logger = logging.getLogger(__name__)
         self.epub_path = epub_path
         self.width = width

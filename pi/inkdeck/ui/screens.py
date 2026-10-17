@@ -193,7 +193,7 @@ class ReaderScreen:
         self.width, self.height = width, height
         self.zoom_factor = zoom_factor
         self.font_family = "serif"
-        self.book_fonts = True
+        self.book_fonts = False
         self.show_chapter = True
         self.show_page_numbers = True
         self.show_percentage = True
