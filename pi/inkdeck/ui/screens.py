@@ -192,6 +192,8 @@ class ReaderScreen:
         self.logger = logging.getLogger(__name__)
         self.width, self.height = width, height
         self.zoom_factor = zoom_factor
+        self.font_family = "serif"
+        self.book_fonts = True
         self.show_chapter = True
         self.show_page_numbers = True
         self.show_percentage = True
@@ -210,7 +212,8 @@ class ReaderScreen:
         from ..reader.renderer import PillowTextRenderer
         self.close()
         self.renderer = PillowTextRenderer(epub_path, width=self.width, height=self.height,
-                                           zoom_factor=self.zoom_factor, progress_callback=progress_callback)
+                                           zoom_factor=self.zoom_factor, progress_callback=progress_callback,
+                                           font_family=self.font_family, book_fonts=self.book_fonts)
         self.page_cache = PageCache(self.cache_size)
         self.current_page = 0
         self.current_book_path = epub_path

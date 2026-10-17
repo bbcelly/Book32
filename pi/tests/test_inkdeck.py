@@ -152,6 +152,17 @@ def test_boot_settings(tmp_path):
     assert boot_undervolt([tmp_path]) == 0 and boot_cores([tmp_path]) == 4
 
 
+def test_reading_fonts(epub):
+    open_sans = PillowTextRenderer(str(epub), 480, 800, font_family="openSans", book_fonts=False)
+    assert "Open Sans" in open_sans.fonts["normal"].getname()[0]
+    assert open_sans.fonts["bold"].getname()[1] == "Bold"
+    serif = PillowTextRenderer(str(epub), 480, 800, font_family="serif")
+    assert open_sans._cache_path() != serif._cache_path()
+    assert PillowTextRenderer(str(epub), 480, 800, font_family="nope").font_family == "serif"
+    with pytest.raises(ValueError):
+        Settings(paths.data_path("font-test.json")).update({"font_family": "Comic Sans"})
+
+
 def test_cover_from_opf_metadata(epub, tmp_path):
     covers = CoverExtractor(tmp_path / "covers")
     cover = covers.get_cover(str(epub), (100, 150))
@@ -292,6 +303,10 @@ def test_web_pages_and_books(client, app, tmp_path):
     assert client.get("/api/progress/list").get_json()["progress"] == []
     assert client.post("/delete/../config.yaml").status_code == 404
     assert client.post("/delete/Missing.epub").status_code == 404
+    assert client.get("/fonts/openSans.ttf").data[:4] == bytes([0, 1, 0, 0])
+    assert client.get("/fonts/../config.yaml").status_code == 404
+    page = client.get("/").get_data(as_text=True)
+    assert 'value="openSans"' in page and 'name="book_fonts"' in page
 
 
 def test_web_remote_settings_and_todos(client, app):

@@ -7,6 +7,8 @@ from .paths import data_path, load_json, save_json
 
 DEFAULTS = {
     "zoom": 1.0,
+    "font_family": "serif",
+    "book_fonts": True,
     "full_refresh_interval": 10,
     "show_chapter": True,
     "show_page_numbers": True,
@@ -29,6 +31,7 @@ LIMITS = {
     "sleep_timeout": (30, 3600),
     "undervolt": (-8, 0),
     "boot_cores": (1, 4),
+    "font_family": ("serif", "native", "openSans"),
     "sleep_message": 50,
     "shutdown_message": 20,
 }
@@ -44,6 +47,10 @@ def _coerce(key, value):
         number = type(default)(float(value))
         low, high = LIMITS[key]
         return min(max(number, low), high)
+    if isinstance(LIMITS.get(key), tuple):
+        if value not in LIMITS[key]:
+            raise ValueError(f"{key} must be one of {', '.join(LIMITS[key])}")
+        return value
     return str(value)[: LIMITS.get(key, 200)]
 
 

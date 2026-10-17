@@ -127,16 +127,17 @@ class InkDeckApp:
         self.library.items_per_page = s["items_per_page"]
         for key in FOOTER_SETTINGS:
             setattr(self.reader, key, s[key])
-        if changed is None:
-            self.reader.zoom_factor = s["zoom"]
-            return
+        layout = {"zoom_factor": s["zoom"], "font_family": s["font_family"], "book_fonts": s["book_fonts"]}
         with self.lock:
-            if "zoom" in changed and self.reader.is_open:
+            relayout = self.reader.is_open and any(getattr(self.reader, k) != v for k, v in layout.items())
+            for key, value in layout.items():
+                setattr(self.reader, key, value)
+            if changed is None:
+                return
+            if relayout:  # Lay the open book out again, at the same place
                 path, fraction = self.reader.current_book_path, self.reader.current_page / max(1, self.reader.page_count)
-                self.reader.zoom_factor = s["zoom"]
                 self._open_book_path(path, start_fraction=fraction)
             else:
-                self.reader.zoom_factor = s["zoom"]
                 if self.current in (Screen.LIBRARY, Screen.READER):
                     self.render()
 

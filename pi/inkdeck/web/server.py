@@ -14,13 +14,13 @@ import subprocess
 import threading
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, render_template, request, send_file
 from werkzeug.serving import make_server
 from werkzeug.utils import secure_filename
 
 from .. import VERSION
 from ..paths import APP_ROOT, SCRIPTS_DIR, resolve
-from ..reader.renderer import forget_layouts
+from ..reader.renderer import READING_FONTS, forget_layouts
 from ..ui.common import get_ip_address, wifi_is_up
 from ..ui.navigation import Screen
 
@@ -141,8 +141,17 @@ class WebServer:
 
         @f.route("/")
         def index():
+            installed = {name: os.path.exists(files["normal"]) for name, files in READING_FONTS.items()}
             return render_template("index.html", version=VERSION, settings=app.settings.all(),
-                                   books=self._books())
+                                   books=self._books(), fonts_installed=installed)
+
+        @f.route("/fonts/<family>.ttf")
+        def reading_font(family):
+            """The reading fonts, so the font choices preview in the real typeface."""
+            path = READING_FONTS.get(family, {}).get("normal")
+            if not path or not os.path.exists(path):
+                abort(404)
+            return send_file(path, mimetype="font/ttf", max_age=86400)
 
         # ---- Books ----
 

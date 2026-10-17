@@ -12,6 +12,10 @@ git pull --ff-only
 if ! git diff --quiet "$before" HEAD -- requirements.txt; then
     pip3 install --break-system-packages -q -r requirements.txt
 fi
+# Fonts added after the first release (the Native reading font).
+if ! dpkg -s fonts-freefont-ttf >/dev/null 2>&1; then
+    sudo -n apt-get install -y -q fonts-freefont-ttf || echo "Could not install fonts-freefont-ttf"
+fi
 echo "Updated to $(git log -1 --format='%h %s')"
 
 if systemctl is-enabled --quiet inkdeck.service 2>/dev/null; then

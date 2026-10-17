@@ -15,8 +15,9 @@ called PiBook.
 - **eReader** for EPUB books, with bold and italic text, headings,
   illustrations, simple tables, cover thumbnails and saved reading positions.
   Like InkDeck on ESP32, the footer shows the chapter (from the book's table of
-  contents), the page and the percentage read; each can be turned off. Text
-  size and how often the page fully refreshes are adjustable.
+  contents), the page and the percentage read; each can be turned off. The
+  reading font (Serif, or Native and Open Sans as on ESP32), text size and how
+  often the page fully refreshes are set in the web interface.
 - **To Do** list: add tasks on the web, check them off on the device.
 - **Network scanner** for devices on your network.
 - **Klipper monitor** for 3D printers running Moonraker (Mainsail, Fluidd).
@@ -142,5 +143,6 @@ python -m pytest tests
 ## License
 
 InkDeck for Raspberry Pi is released under the MIT License; see
-[LICENSE](LICENSE). The Waveshare e-Paper library that the installer downloads
-has its own license.
+[LICENSE](LICENSE). The Open Sans font in `assets/fonts` is under the SIL Open
+Font License ([OpenSans-OFL.txt](assets/fonts/OpenSans-OFL.txt)). The Waveshare
+e-Paper library that the installer downloads has its own license.

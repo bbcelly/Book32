@@ -25,7 +25,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from ebooklib import epub
 from PIL import Image, ImageDraw, ImageFont
 
-from ..paths import CACHE_DIR
+from ..paths import ASSETS_DIR, CACHE_DIR
 
 try:
     import cairosvg
@@ -35,16 +35,21 @@ except ImportError:
 # Bump when the layout or the cache format changes, so old caches are ignored.
 LAYOUT_VERSION = 3
 
-_FONT_FAMILIES = [
-    {"normal": "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
-     "bold": "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
-     "italic": "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf",
-     "bold_italic": "/usr/share/fonts/truetype/dejavu/DejaVuSerif-BoldItalic.ttf"},
-    {"normal": "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-     "bold": "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
-     "italic": "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf",
-     "bold_italic": "/usr/share/fonts/truetype/liberation/LiberationSerif-BoldItalic.ttf"},
-]
+_DEJAVU = "/usr/share/fonts/truetype/dejavu/"
+_FREEFONT = "/usr/share/fonts/truetype/freefont/"
+_OPEN_SANS = str(ASSETS_DIR / "fonts") + "/"
+# Reading fonts, chosen in the web interface. Native and Open Sans are the two
+# fonts of InkDeck on ESP32; Open Sans ships in assets/fonts, FreeSans comes
+# from the fonts-freefont-ttf package. A missing style falls back to the
+# regular one, and a missing font to Serif.
+READING_FONTS = {
+    "serif": {"normal": _DEJAVU + "DejaVuSerif.ttf", "bold": _DEJAVU + "DejaVuSerif-Bold.ttf",
+              "italic": _DEJAVU + "DejaVuSerif-Italic.ttf", "bold_italic": _DEJAVU + "DejaVuSerif-BoldItalic.ttf"},
+    "native": {"normal": _FREEFONT + "FreeSans.ttf", "bold": _FREEFONT + "FreeSansBold.ttf",
+               "italic": _FREEFONT + "FreeSansOblique.ttf", "bold_italic": _FREEFONT + "FreeSansBoldOblique.ttf"},
+    "openSans": {"normal": _OPEN_SANS + "OpenSans-Regular.ttf", "bold": _OPEN_SANS + "OpenSans-Bold.ttf",
+                 "italic": _OPEN_SANS + "OpenSans-Italic.ttf", "bold_italic": _OPEN_SANS + "OpenSans-BoldItalic.ttf"},
+}
 _BLOCK_TAGS = {"p", "div", "h1", "h2", "h3", "h4", "br", "li"}
 LAYOUT_DIR = CACHE_DIR / "layout"
 
@@ -107,12 +112,15 @@ def _flatten_toc(entries, depth=0):
 
 class PillowTextRenderer:
     def __init__(self, epub_path: str, width: int = 480, height: int = 800,
-                 zoom_factor: float = 1.0, progress_callback=None):
+                 zoom_factor: float = 1.0, progress_callback=None, font_family: str = "serif",
+                 book_fonts: bool = True):
         self.logger = logging.getLogger(__name__)
         self.epub_path = epub_path
         self.width = width
         self.height = height
         self.zoom_factor = zoom_factor
+        self.font_family = font_family if font_family in READING_FONTS else "serif"
+        self.book_fonts = book_fonts
         self.progress = progress_callback or (lambda percent, message: None)
 
         self.margin_left = self.margin_right = self.margin_top = 30
@@ -139,15 +147,14 @@ class PillowTextRenderer:
     # ---- Fonts ----
 
     def _load_fonts(self):
-        family = next((f for f in _FONT_FAMILIES if os.path.exists(f["normal"])), None)
+        family, serif = READING_FONTS[self.font_family], READING_FONTS["serif"]
 
         def load(style, size):
-            if family:
-                path = family[style] if os.path.exists(family[style]) else family["normal"]
+            for path in (family[style], family["normal"], serif[style], serif["normal"]):
                 try:
                     return ImageFont.truetype(path, size)
                 except OSError:
-                    pass
+                    continue
             return ImageFont.load_default(size)
 
         for style in ("normal", "bold", "italic", "bold_italic"):
@@ -157,6 +164,8 @@ class PillowTextRenderer:
 
     def _use_embedded_fonts(self):
         """Use the book's own TTF/OTF fonts, saved once to data/cache/fonts/."""
+        if not self.book_fonts:
+            return
         fonts = [item for item in self.book.get_items()
                  if item.get_name().lower().endswith((".ttf", ".otf"))]
         font_dir = CACHE_DIR / "fonts"
@@ -187,7 +196,8 @@ class PillowTextRenderer:
         stat = os.stat(self.epub_path)
         stamp = f"{stat.st_size:x}{int(stat.st_mtime):x}"
         return LAYOUT_DIR / (f"{_book_id(self.epub_path)}-{stamp}.{self.width}x{self.height}"
-                             f".z{self.zoom_factor:g}.v{LAYOUT_VERSION}.pickle")
+                             f".z{self.zoom_factor:g}.{self.font_family}{'.book' if self.book_fonts else ''}"
+                             f".v{LAYOUT_VERSION}.pickle")
 
     def _load_epub(self):
         self.progress(5, "Opening book...")

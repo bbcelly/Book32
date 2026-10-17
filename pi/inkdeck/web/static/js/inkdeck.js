@@ -167,7 +167,9 @@ async function resetProgress(path) {
 async function saveSettings(form) {
     const data = {};
     form.querySelectorAll('input[name], select[name]').forEach((el) => {
-        data[el.name] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value;
+        if (el.type === 'radio' && !el.checked) return;
+        const numeric = el.type === 'number' || (el.type === 'radio' && el.value !== '' && !Number.isNaN(Number(el.value)));
+        data[el.name] = el.type === 'checkbox' ? el.checked : numeric ? Number(el.value) : el.value;
     });
     const statusId = form.dataset.status;
     setStatus(statusId, 'Saving…');
@@ -176,8 +178,17 @@ async function saveSettings(form) {
         const warning = result.undervolt_warning || result.boot_cores_warning;
         setStatus(statusId, warning || 'Saved.', !!warning);
         for (const [key, value] of Object.entries(result.settings)) {
-            const el = form.querySelector(`[name="${key}"]`);
-            if (el && el.type === 'checkbox') el.checked = value; else if (el) el.value = value;
+            const els = form.querySelectorAll(`[name="${key}"]`);
+            els.forEach((el) => {
+                if (el.type === 'radio') el.checked = Number(el.value) === value || el.value === value;
+                else if (el.type === 'checkbox') el.checked = value;
+                else el.value = value;
+            });
+        }
+        if (result.settings.font_family) {
+            form.querySelectorAll('.size-preview').forEach((el) => {
+                el.className = el.className.replace(/font-\w+-preview/, `font-${result.settings.font_family}-preview`);
+            });
         }
     } catch (e) { setStatus(statusId, e.message, true); }
 }
