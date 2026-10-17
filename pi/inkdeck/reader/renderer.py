@@ -266,6 +266,8 @@ class PillowTextRenderer:
             title = " ".join(str(title or "").split())
             if not name or not title:
                 continue
+            if title.isdigit():
+                title = f"Chapter {title}"  # Many tables of contents number chapters only
             anchors.setdefault(name, {}).setdefault(fragment, []).append(len(titles))
             titles.append((title, depth))
         return titles, anchors
