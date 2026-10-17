@@ -3,6 +3,11 @@ settings, Bluetooth, a terminal and logs, served by Flask on port 5000.
 
 There is no login: anyone on the network can use it, including the terminal,
 which runs commands as the app's user. Keep the Pi on a trusted network.
+
+While the Wi-Fi setup hotspot is up (see wifi.py), only the setup page is
+served, and every other address leads to it, which makes phones show it as
+a sign-in page. It is also served on port 80 for that, when the service
+may use that port.
 """
 
 import json
@@ -14,7 +19,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, render_template, request, send_file
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, send_file
 from werkzeug.serving import make_server
 from werkzeug.utils import secure_filename
 
@@ -23,8 +28,10 @@ from ..paths import APP_ROOT, SCRIPTS_DIR, resolve
 from ..reader.renderer import READING_FONTS, forget_layouts
 from ..ui.common import get_ip_address, wifi_is_up
 from ..ui.navigation import Screen
+from ..wifi import SETUP_ADDRESS, password_error
 
 MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
+SETUP_PATHS = ("/setup", "/api/wifi/", "/static/")
 
 
 def _run(args, timeout=5) -> subprocess.CompletedProcess:
@@ -100,20 +107,34 @@ class WebServer:
         self.flask = Flask(__name__, template_folder=os.path.join(here, "templates"),
                            static_folder=os.path.join(here, "static"))
         self.flask.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
-        self._server = None
+        self._servers = []
         self._routes()
 
     def start(self):
         try:
-            self._server = make_server("0.0.0.0", self.port, self.flask, threaded=True)
+            self._serve(self.port)
         except OSError as e:
             self.logger.error(f"Web server could not start on port {self.port}: {e}")
             return
-        threading.Thread(target=self._server.serve_forever, name="web", daemon=True).start()
+        if self.port != 80:
+            try:
+                self._serve(80)  # http://inkdeck.local and the setup page's sign-in redirect
+            except OSError as e:
+                self.logger.info(f"Not serving on port 80: {e}")
+
+    def _serve(self, port: int):
+        server = make_server("0.0.0.0", port, self.flask, threaded=True)
+        self._servers.append(server)
+        threading.Thread(target=server.serve_forever, name=f"web-{port}", daemon=True).start()
+
+    @property
+    def setup_url(self) -> str:
+        port = "" if len(self._servers) > 1 or self.port == 80 else f":{self.port}"
+        return f"http://{SETUP_ADDRESS}{port}/setup"
 
     def stop(self):
-        if self._server:
-            self._server.shutdown()
+        for server in self._servers:
+            server.shutdown()
 
     def _book_path(self, filename: str):
         name = secure_filename(filename)
@@ -138,6 +159,13 @@ class WebServer:
 
     def _routes(self):
         f, app = self.flask, self.app
+
+        @f.before_request
+        def setup_portal():
+            """While the setup hotspot is up, everything leads to the setup page."""
+            if app.wifi.setup_active and not request.path.startswith(SETUP_PATHS):
+                return redirect(self.setup_url)
+            return None
 
         @f.route("/")
         def index():
@@ -348,6 +376,79 @@ class WebServer:
             else:
                 return jsonify({"error": "Unknown log"}), 404
             return jsonify({"logs": result.stdout or result.stderr or "No log entries.", "type": kind})
+
+        # ---- Wi-Fi ----
+
+        def network_form():
+            data = request.get_json(silent=True) or {}
+            ssid = str(data.get("ssid", "")).strip()
+            password = str(data.get("password", ""))
+            if not ssid or len(ssid.encode()) > 32:
+                return None, "Enter the network name (up to 32 characters)"
+            return (ssid, password, bool(data.get("hidden"))), password_error(password)
+
+        @f.route("/setup")
+        def setup_page():
+            app.wifi.visited()
+            return render_template("setup.html", version=VERSION)
+
+        @f.route("/api/wifi/status")
+        def wifi_status():
+            wifi = app.wifi
+            if wifi.setup_active:
+                wifi.visited()
+            return jsonify({"available": wifi.available, "setup_active": wifi.setup_active, "state": wifi.state,
+                            "ssid": wifi.ssid, "message": wifi.message, "networks": wifi.networks,
+                            "connected": None if wifi.setup_active else wifi.connected_ssid(),
+                            "saved": [] if wifi.setup_active else wifi.saved(), "address": get_ip_address()})
+
+        @f.route("/api/wifi/scan", methods=["POST"])
+        def wifi_scan():
+            app.wifi.visited()
+            return jsonify({"networks": app.wifi.scan()})
+
+        @f.route("/api/wifi/connect", methods=["POST"])
+        def wifi_connect():
+            """From the setup page: leave the hotspot and join a network."""
+            if app.wifi.state != "hotspot":
+                return jsonify({"error": "The setup hotspot is not running"}), 409
+            network, error = network_form()
+            if error:
+                return jsonify({"error": error}), 400
+            app.wifi.connect(*network)
+            self.logger.info(f"Joining {network[0]} from the setup page")
+            return jsonify({"status": "connecting", "ssid": network[0]})
+
+        @f.route("/api/wifi/add", methods=["POST"])
+        def wifi_add():
+            """From Settings: save a network to join when it's in range."""
+            network, error = network_form()
+            if error:
+                return jsonify({"error": error}), 400
+            result = app.wifi.add(*network)
+            if result.returncode != 0:
+                return jsonify({"error": (result.stderr or result.stdout).strip() or "Could not save"}), 500
+            return jsonify({"success": True})
+
+        @f.route("/api/wifi/forget", methods=["POST"])
+        def wifi_forget():
+            name = str((request.get_json(silent=True) or {}).get("name", ""))
+            if not app.wifi.forget(name):
+                return jsonify({"error": "Network not found"}), 404
+            return jsonify({"success": True})
+
+        @f.route("/api/wifi/setup", methods=["POST"])
+        def wifi_setup():
+            """Start the setup hotspot now (this page then loses the device)."""
+            if not app.wifi.available:
+                return jsonify({"error": "Wi-Fi setup needs NetworkManager"}), 503
+            def later():
+                import time
+                time.sleep(2)
+                app.wifi.start_hotspot()
+            threading.Thread(target=later, daemon=True).start()
+            self.logger.info("Setup hotspot requested from the web interface")
+            return jsonify({"status": "starting"})
 
         # ---- Bluetooth ----
 

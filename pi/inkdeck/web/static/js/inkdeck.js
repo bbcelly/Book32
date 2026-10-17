@@ -35,7 +35,7 @@ const tabLoaders = {
     todo: loadTodos,
     network: refreshNetwork,
     klipper: refreshKlipper,
-    settings: refreshBluetooth,
+    settings: () => { refreshWifi(); refreshBluetooth(); },
     logs: loadLogs,
 };
 
@@ -325,6 +325,46 @@ function deviceRow(d, button) {
     return `<li><span><strong>${escapeHtml(d.name)}</strong><small>${escapeHtml(d.mac)}</small></span>${button}</li>`;
 }
 
+// ---- Wi-Fi ----
+
+async function refreshWifi() {
+    let data;
+    try { data = await api('/api/wifi/status'); } catch (e) { $('wifi-current').textContent = e.message; return; }
+    if (!data.available) {
+        $('wifi-current').textContent = 'Wi-Fi settings need NetworkManager, which Raspberry Pi OS uses.';
+        return;
+    }
+    $('wifi-current').textContent = data.connected ? `Connected to ${data.connected} (${data.address})` : 'Not connected';
+    $('wifi-saved').innerHTML = data.saved.length
+        ? data.saved.map((n) => `<li><span><strong>${escapeHtml(n.ssid)}</strong>${n.ssid === data.connected ? '<small>Connected</small>' : ''}</span><button class="btn-delete" data-forget="${escapeHtml(n.name)}" data-ssid="${escapeHtml(n.ssid)}" data-connected="${n.ssid === data.connected}">Forget</button></li>`).join('')
+        : '<li class="hint">None.</li>';
+}
+
+async function addWifi(event) {
+    event.preventDefault();
+    try {
+        await api('/api/wifi/add', { json: { ssid: $('wifi-ssid').value.trim(), password: $('wifi-password').value } });
+        setStatus('wifi-status', 'Saved');
+        $('wifi-add-form').reset();
+    } catch (e) { setStatus('wifi-status', e.message, true); }
+    refreshWifi();
+}
+
+async function forgetWifi(name, ssid, connected) {
+    const warning = connected ? '\n\nInkDeck is using this network now: it disconnects, and starts Wi-Fi setup if no other saved network is in range.' : '';
+    if (!confirm(`Forget ${ssid}?${warning}`)) return;
+    try { await api('/api/wifi/forget', { json: { name } }); } catch (e) { setStatus('wifi-status', e.message, true); }
+    refreshWifi();
+}
+
+async function startWifiSetup() {
+    if (!confirm('Start Wi-Fi setup? InkDeck leaves this network and opens its own, InkDeck-Setup. Join it from a phone and open 192.168.4.1 to choose a network.')) return;
+    try {
+        await api('/api/wifi/setup', { method: 'POST' });
+        setStatus('wifi-status', 'Starting InkDeck-Setup. This page stops responding now.');
+    } catch (e) { setStatus('wifi-status', e.message, true); }
+}
+
 async function refreshBluetooth() {
     let data;
     try { data = await api('/api/bluetooth/status'); } catch (e) { return; }
@@ -476,6 +516,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }));
     $('bluetooth-power').addEventListener('change', (e) => setBluetoothPower(e.target.checked));
     $('paired-devices').addEventListener('click', (e) => { if (e.target.dataset.remove) removeDevice(e.target.dataset.remove); });
+    $('wifi-saved').addEventListener('click', (e) => { const d = e.target.dataset; if (d.forget) forgetWifi(d.forget, d.ssid, d.connected === 'true'); });
     $('found-devices').addEventListener('click', (e) => { if (e.target.dataset.pair) pairDevice(e.target.dataset.pair, e.target.dataset.name); });
     $('pisugar-link').href = `http://${location.hostname}:8421`;
     const start = location.hash.replace(/^#\/?/, '');  // '#/name': not an element id, so no jump

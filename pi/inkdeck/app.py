@@ -41,6 +41,8 @@ from .settings import Settings
 from .ui.common import message_screen
 from .ui.navigation import Screen
 from .ui.screens import HOME_ENTRY, LibraryScreen, MainMenuScreen, ReaderScreen
+from .ui.wifi_setup import WifiSetupScreen
+from .wifi import WifiManager
 
 COMMANDS = ("next", "prev", "select", "toggle", "back", "home")
 # Aliases accepted from the PiSugar button and older PiBook setups.
@@ -103,9 +105,14 @@ class InkDeckApp:
         self.todo = ToDoScreen(width, height, self.todos, self.battery)
         self.klipper = KlipperScreen(width, height, self.battery)
         self.typewriter = TypewriterScreen(width, height, battery=self.battery)
+        self.wifi = WifiManager(on_change=self._wifi_changed,
+                                radio_wanted=lambda: self.power.wifi_on and not self.power.is_sleeping)
+        self.main_menu.wifi = self.wifi
+        self.wifi_setup = WifiSetupScreen(width, height, self.wifi, self.battery, self.web_port)
         self.screens = {
             Screen.MAIN_MENU: self.main_menu, Screen.LIBRARY: self.library, Screen.IP_SCANNER: self.ip_scanner,
             Screen.TODO: self.todo, Screen.KLIPPER: self.klipper, Screen.TYPEWRITER: self.typewriter,
+            Screen.WIFI_SETUP: self.wifi_setup,
         }
         self.current = Screen.MAIN_MENU
         self.shown = None  # Screen on the panel; a change of screen gets a full refresh
@@ -195,6 +202,7 @@ class InkDeckApp:
         from .web.server import WebServer
         self.web = WebServer(self, self.web_port)
         self.web.start()
+        self.wifi.start()
 
         self.running = True
         threading.Thread(target=self._monitor, name="monitor", daemon=True).start()
@@ -235,6 +243,9 @@ class InkDeckApp:
                 self._wake()
                 return
             self.logger.debug(f"{command} on {self.current.value}")
+            if self.current == Screen.WIFI_SETUP:  # Any button leaves the setup steps
+                self.show(Screen.MAIN_MENU)
+                return
             getattr(self, f"_on_{command}")()
 
     def _on_next(self):
@@ -406,8 +417,13 @@ class InkDeckApp:
             self.progress.save_progress(self.reader.current_book_path, self.reader.current_page,
                                         self.reader.page_count, self.reader.chapter_title())
 
+    def _wifi_may_turn_off(self) -> bool:
+        """Wi-Fi turns off while reading and asleep, except when the user keeps
+        it on, and never while the setup hotspot is up."""
+        return not self.settings.get("wifi_while_reading") and not self.wifi.setup_active
+
     def _enter_reading_mode(self):
-        if not self.settings.get("wifi_while_reading"):
+        if self._wifi_may_turn_off():
             self.power.set_wifi(False)
         if self.config.get("power.single_core_reading", True):
             self.power.set_online_cores(1)
@@ -417,6 +433,22 @@ class InkDeckApp:
             self.power.set_wifi(True)
         if self.config.get("power.single_core_reading", True):
             self.power.set_online_cores(self.settings.get("boot_cores"))
+
+    # ---- Wi-Fi setup ----
+
+    def _wifi_changed(self, event: str):
+        """The setup hotspot started, or a network is being joined, joined or
+        failed (see wifi.py). Shows the setup steps unless a book or the
+        Terminal is open; the main menu shows a reminder either way."""
+        with self.lock:
+            if not self.running or self.power.is_sleeping:
+                return
+            if self.current in (Screen.READER, Screen.TYPEWRITER):
+                return
+            if event == "hotspot" or self.current == Screen.WIFI_SETUP:
+                self.show(Screen.WIFI_SETUP)
+            elif self.current == Screen.MAIN_MENU:
+                self.render()
 
     # ---- Sleep and shutdown ----
 
@@ -428,7 +460,7 @@ class InkDeckApp:
             self.display.display_image(message_screen(self.display.width, self.display.height,
                                                       self.settings.get("sleep_message")), use_partial=False)
             self.shown = None
-            if not self.settings.get("wifi_while_reading"):
+            if self._wifi_may_turn_off():
                 self.power.set_wifi(False)
 
     def _wake(self):
@@ -459,7 +491,7 @@ class InkDeckApp:
             time.sleep(1)
             try:
                 self.display.idle()
-                if self.power.should_sleep():
+                if self.power.should_sleep() and self.current != Screen.WIFI_SETUP:
                     self._sleep()
                     continue
                 if self.power.is_sleeping:

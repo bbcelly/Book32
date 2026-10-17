@@ -64,6 +64,7 @@ class PowerManager:
         self.sleep_enabled = True
         self.sleep_timeout = 120
         self.is_sleeping = False
+        self.wifi_on = True     # The radio as last set; it is on at boot
         self.last_activity = time.monotonic()
 
     # ---- Inactivity ----
@@ -118,6 +119,7 @@ class PowerManager:
     def set_wifi(self, on: bool):
         """Switch the Wi-Fi radio. NetworkManager reconnects when it comes back on."""
         state = "on" if on else "off"
+        self.wifi_on = on
         if _run(["sudo", "-n", "nmcli", "radio", "wifi", state]):
             self.logger.info(f"Wi-Fi {state}")
         elif _run(["sudo", "-n", "ip", "link", "set", "wlan0", "up" if on else "down"]):

@@ -19,6 +19,8 @@ from inkdeck.settings import Settings
 from inkdeck.ui.common import message_screen, wrap_text
 from inkdeck.ui.navigation import Screen
 from inkdeck.ui.screens import ReaderScreen
+from inkdeck.ui.wifi_setup import WifiSetupScreen
+from inkdeck.wifi import SETUP_SSID, WifiManager, parse_scan, password_error, split_terse
 
 
 # ---- Storage ----
@@ -246,6 +248,27 @@ def test_text_helpers():
     assert message_screen(480, 800, "Shh I'm sleeping").size == (480, 800)
 
 
+def test_wifi_scan_parsing():
+    assert split_terse(r"Cafe\: Guest:72:WPA2") == ["Cafe: Guest", "72", "WPA2"]
+    scan = parse_scan("\n".join(["Home:40:WPA2", "Home:81:WPA2 WPA3", "Open Cafe:55:", ":90:WPA2",
+                                  f"{SETUP_SSID}:99:", "Weak:x:WPA1"]))
+    assert scan == [{"ssid": "Home", "signal": 81, "secure": True}, {"ssid": "Open Cafe", "signal": 55, "secure": False},
+                    {"ssid": "Weak", "signal": 0, "secure": True}]
+    assert password_error("") is None and password_error("12345678") is None
+    assert password_error("short") and password_error("x" * 64)
+
+
+def test_wifi_setup_screen_states():
+    wifi = WifiManager()
+    screen = WifiSetupScreen(480, 800, wifi)
+    for state, message in (("hotspot", ""), ("hotspot", "Could not join Home: check the password and try again."),
+                           ("connecting", ""), ("retrying", ""), ("normal", "Connected to Home")):
+        wifi.state, wifi.ssid, wifi.message = state, "Home", message
+        image = screen.render()
+        assert image.size == (480, 800) and image.mode == "1"
+        assert image.getbbox() is not None
+
+
 # ---- The app ----
 
 @pytest.fixture
@@ -262,6 +285,7 @@ def app(tmp_path):
     from inkdeck.app import InkDeckApp
     instance = InkDeckApp(Config(config_file))
     instance.power.set_wifi = lambda on: None  # Never touch this computer's network
+    instance.wifi.available = False
     instance.library.load_books(instance.books_dir)
     instance.running = True
     yield instance
@@ -401,3 +425,34 @@ def test_web_system_endpoints(client):
     assert client.get("/api/ipscanner/status").get_json()["scanning"] is False
     assert client.get("/api/klipper/printers").get_json()["printers"] == []
     assert client.post("/api/bluetooth/pair", json={"mac": "nonsense"}).status_code == 400
+
+
+def test_wifi_setup_flow(client, app):
+    app.wifi.state = "hotspot"
+    app._wifi_changed("hotspot")
+    assert app.current == Screen.WIFI_SETUP
+    assert "InkDeck-Setup" in str(app.main_menu.wifi.setup_active and "InkDeck-Setup")
+    for path in ("/", "/generate_204", "/hotspot-detect.html", "/api/books"):
+        response = client.get(path)
+        assert response.status_code == 302 and response.location.endswith("/setup"), path
+    assert b"Connect to Wi-Fi" in client.get("/setup").data
+    status = client.get("/api/wifi/status").get_json()
+    assert status["setup_active"] and status["state"] == "hotspot"
+    assert client.post("/api/wifi/connect", json={"ssid": ""}).status_code == 400
+    assert client.post("/api/wifi/connect", json={"ssid": "Home", "password": "short"}).status_code == 400
+    joined = []
+    app.wifi.connect = lambda *args: joined.append(args)
+    assert client.post("/api/wifi/connect", json={"ssid": "Home", "password": "correct horse"}).get_json()["status"] == "connecting"
+    assert joined == [("Home", "correct horse", False)]
+
+    app.handle("next")                        # Any button leaves the setup steps
+    assert app.current == Screen.MAIN_MENU
+    app.show(Screen.LIBRARY)
+    app.handle("select")                      # Reading keeps the hotspot's radio on
+    assert app.current == Screen.READER and not app._wifi_may_turn_off()
+    app.show(Screen.MAIN_MENU)
+
+    app.wifi.state = "normal"
+    assert client.get("/").status_code == 200
+    assert client.post("/api/wifi/connect", json={"ssid": "Home"}).status_code == 409
+    assert client.post("/api/wifi/forget", json={"name": "Nope"}).status_code == 404

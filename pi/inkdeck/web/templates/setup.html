@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0d1117">
+    <title>InkDeck Wi-Fi setup</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/inkdeck.css') }}?v={{ version }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+    <style>
+        .setup { max-width: 480px; margin: 0 auto; padding: 28px 16px 48px; }
+        .setup .brand { margin: 0 0 24px; }
+        .setup h1 { margin: 0 0 6px; font-size: 26px; }
+        .setup .card { padding: 18px; margin-top: 18px; }
+        .network-list { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+        .network-list button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); cursor: pointer; text-align: left; font-size: 15px; overflow-wrap: anywhere; }
+        .network-list button:hover, .network-list button.selected { border-color: var(--accent); color: var(--accent); }
+        .network-list small { color: var(--muted); white-space: nowrap; }
+        .setup .text-field input { width: 100%; max-width: none; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); color: var(--text); }
+        .setup .btn { width: 100%; margin-top: 16px; }
+        .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 14px; }
+        .notice { padding: 12px 14px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 14px; }
+        .notice.error { background: var(--danger-soft); color: var(--danger); }
+    </style>
+</head>
+<body>
+<main class="setup">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">ID</span><span><strong>InkDeck</strong><small>Wi-Fi setup</small></span></div>
+    <h1>Connect to Wi-Fi</h1>
+    <p class="hint">Choose the network InkDeck should use, then enter its password.</p>
+    <p class="notice hidden" id="message"></p>
+
+    <div class="card" id="choose">
+        <div class="card-heading" style="margin-bottom: 0"><h2 style="margin: 0; font-size: 17px">Networks nearby</h2><button class="btn-edit" id="rescan" onclick="scan()">Scan again</button></div>
+        <ul class="network-list" id="networks"><li class="hint">Looking for networks…</li></ul>
+        <form id="join" onsubmit="join(event)">
+            <label class="text-field"><span>Network name</span><input type="text" id="ssid" maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false" required></label>
+            <label class="text-field"><span>Password</span><input type="password" id="password" maxlength="63" autocomplete="off"></label>
+            <label class="check"><input type="checkbox" onchange="$('password').type = this.checked ? 'text' : 'password'"> Show password</label>
+            <label class="check"><input type="checkbox" id="hidden"> Hidden network</label>
+            <button class="btn primary" type="submit" id="join-button">Connect</button>
+        </form>
+    </div>
+
+    <div class="card hidden" id="joining">
+        <h2 style="margin-top: 0; font-size: 18px">Connecting to <span id="joining-ssid"></span>…</h2>
+        <p class="hint">Your phone now leaves InkDeck-Setup, so this page stops updating. Look at the InkDeck screen:
+            it shows the web address to use on your own network.</p>
+        <p class="hint" style="margin-top: 10px">If the password was wrong, InkDeck-Setup comes back in about a minute.
+            Join it again to see what went wrong and try again.</p>
+    </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let networks = [];
+
+function showMessage(text, isError) {
+    $('message').textContent = text;
+    $('message').classList.toggle('hidden', !text);
+    $('message').classList.toggle('error', !!isError);
+}
+
+function bars(signal) { return signal >= 70 ? '▂▄▆█' : signal >= 45 ? '▂▄▆' : signal >= 20 ? '▂▄' : '▂'; }
+
+function render() {
+    $('networks').innerHTML = networks.length
+        ? networks.map((n, i) => `<li><button type="button" data-index="${i}"><span>${escapeHtml(n.ssid)}</span><small>${n.secure ? '🔒 ' : ''}${bars(n.signal)}</small></button></li>`).join('')
+        : '<li class="hint">No networks found. Scan again, or type the name below.</li>';
+}
+
+$('networks').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-index]');
+    if (!button) return;
+    const network = networks[button.dataset.index];
+    document.querySelectorAll('.network-list button').forEach((b) => b.classList.toggle('selected', b === button));
+    $('ssid').value = network.ssid;
+    $('password').value = '';
+    $('password').disabled = !network.secure;
+    if (network.secure) $('password').focus();
+});
+$('ssid').addEventListener('input', () => { $('password').disabled = false; });
+
+async function load() {
+    try {
+        const data = await (await fetch('/api/wifi/status')).json();
+        networks = data.networks || [];
+        render();
+        if (data.message && data.state === 'hotspot') showMessage(data.message, !data.message.startsWith('Connected'));
+    } catch (e) { /* offline */ }
+}
+
+async function scan() {
+    $('rescan').textContent = 'Scanning…';
+    try { networks = (await (await fetch('/api/wifi/scan', { method: 'POST' })).json()).networks || networks; } catch (e) { /* keep the list */ }
+    $('rescan').textContent = 'Scan again';
+    render();
+}
+
+async function join(event) {
+    event.preventDefault();
+    const ssid = $('ssid').value.trim();
+    const password = $('password').disabled ? '' : $('password').value;
+    if (password && (password.length < 8 || password.length > 63)) { showMessage('Wi-Fi passwords are 8 to 63 characters.', true); return; }
+    $('join-button').disabled = true;
+    try {
+        const response = await fetch('/api/wifi/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ssid, password, hidden: $('hidden').checked }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not connect');
+        showMessage('');
+        $('joining-ssid').textContent = ssid;
+        $('choose').classList.add('hidden');
+        $('joining').classList.remove('hidden');
+    } catch (e) {
+        showMessage(e.message, true);
+    } finally {
+        $('join-button').disabled = false;
+    }
+}
+
+load();
+</script>
+</body>
+</html>

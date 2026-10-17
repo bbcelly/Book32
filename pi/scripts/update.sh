@@ -18,6 +18,14 @@ if ! dpkg -s fonts-freefont-ttf >/dev/null 2>&1; then
 fi
 echo "Updated to $(git log -1 --format='%h %s')"
 
+# The service file changes now and then (port 80 for Wi-Fi setup).
+if [ -f /etc/systemd/system/inkdeck.service ]; then
+    unit="$(sed -e "s|@USER@|$(id -un)|g" -e "s|@APP_DIR@|$APP_DIR|g" scripts/inkdeck.service)"
+    if [ "$unit" != "$(cat /etc/systemd/system/inkdeck.service)" ]; then
+        echo "$unit" | sudo -n tee /etc/systemd/system/inkdeck.service >/dev/null && sudo -n systemctl daemon-reload
+    fi
+fi
+
 if systemctl is-enabled --quiet inkdeck.service 2>/dev/null; then
     echo "Restarting InkDeck in 3 seconds..."
     # A timer, so this command finishes before the service (and the web terminal) restarts.

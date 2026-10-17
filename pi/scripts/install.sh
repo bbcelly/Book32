@@ -39,7 +39,8 @@ echo "App folder: $APP_DIR (user $APP_USER)"
 echo "== System packages"
 sudo apt-get update
 sudo apt-get install -y python3-pip python3-dev git fonts-dejavu-core fonts-freefont-ttf libopenjp2-7 \
-    libjpeg-dev libfreetype-dev libcairo2 expect avahi-utils arp-scan nmap netcat-openbsd
+    libjpeg-dev libfreetype-dev libcairo2 expect avahi-utils arp-scan nmap netcat-openbsd \
+    dnsmasq-base
 
 echo "== Python packages"
 pip3 install --break-system-packages -r requirements.txt

@@ -36,6 +36,7 @@ class MainMenuScreen:
         self.width, self.height = width, height
         self.battery = battery
         self.web_port = web_port
+        self.wifi = None  # The WifiManager: while its setup hotspot is up, the footer says so
         self.current_index = 0
         self.icons = {}
         for name, filename, _ in self.APPS:
@@ -87,7 +88,11 @@ class MainMenuScreen:
             draw.text((cx - text_width(draw, name, label) // 2, y + self.ICON + 12), name, font=label, fill=BLACK)
 
         draw_hint(draw, self.width, self.height - 26, "Press: next app   |   Hold: open")
-        draw_centered(draw, self.height - 24, f"Web: http://{get_ip_address()}:{self.web_port}", small, self.width)
+        if self.wifi and self.wifi.setup_active:
+            footer = "Wi-Fi setup: join InkDeck-Setup, open 192.168.4.1"
+        else:
+            footer = f"Web: http://{get_ip_address()}:{self.web_port}"
+        draw_centered(draw, self.height - 24, footer, small, self.width)
         return image
 
 

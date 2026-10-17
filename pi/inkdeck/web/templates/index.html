@@ -163,7 +163,19 @@
 
         <!-- Settings -->
         <section id="settings" class="tab-content">
-            <div class="page-heading"><p class="eyebrow">Configuration</p><h1>Settings</h1><p>Sleep, Bluetooth and power options.</p></div>
+            <div class="page-heading"><p class="eyebrow">Configuration</p><h1>Settings</h1><p>Wi-Fi, sleep, Bluetooth and power options.</p></div>
+            <div class="card section-card">
+                <div class="card-heading"><div><h2>Wi-Fi</h2><p id="wifi-current">Loading…</p></div></div>
+                <h3 class="subhead">Saved networks</h3>
+                <ul class="device-list" id="wifi-saved"></ul>
+                <h3 class="subhead">Add a network</h3>
+                <p class="hint">Saved for later: InkDeck joins it when it's in range, for example after a move. When no saved network is in range, InkDeck starts its own InkDeck-Setup network so you can choose one from a phone.</p>
+                <form id="wifi-add-form" onsubmit="addWifi(event)">
+                    <label class="text-field"><span>Network name</span><input type="text" id="wifi-ssid" maxlength="32" autocomplete="off" spellcheck="false" required></label>
+                    <label class="text-field"><span>Password</span><input type="password" id="wifi-password" maxlength="63" autocomplete="off"></label>
+                    <div class="action-row"><button class="btn primary" type="submit">Save network</button><button class="btn secondary" type="button" onclick="startWifiSetup()">Start Wi-Fi setup</button><span class="status-msg" id="wifi-status"></span></div>
+                </form>
+            </div>
             <div class="card section-card">
                 <div class="card-heading"><div><h2>Sleep and shutdown</h2><p>The device sleeps after a period without input; any button wakes it.</p></div></div>
                 <form class="settings-form" data-status="sleep-status">

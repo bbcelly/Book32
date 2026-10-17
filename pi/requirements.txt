@@ -9,3 +9,4 @@ gpiozero>=2.0            # The GPIO button
 spidev>=3.6              # The e-paper panel
 evdev>=1.6               # Keyboards
 # adafruit-circuitpython-ads1x15>=2.2   # Only for an ADS1115 battery monitor instead of a PiSugar
+qrcode>=7.4              # QR codes on the Wi-Fi setup screen

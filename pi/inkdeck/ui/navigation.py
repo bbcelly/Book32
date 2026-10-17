@@ -11,3 +11,4 @@ class Screen(Enum):
     TODO = "todo"
     KLIPPER = "klipper"
     TYPEWRITER = "typewriter"
+    WIFI_SETUP = "wifi_setup"
