@@ -44,7 +44,7 @@ def _key_maps():
 
 
 KEY_COMMANDS, KEY_CHARS = _key_maps()
-_IGNORED_DEVICES = ("gpio", "ir-receiver", "power button")
+_IGNORED_DEVICES = ("gpio", "ir-receiver", "power button", "hdmi", "cec")
 
 
 class KeyboardHandler:
@@ -93,19 +93,21 @@ class KeyboardHandler:
 
     def _run(self):
         while self.running:
-            if self.device is None:
+            device = self.device
+            if device is None:
                 self.device = self._find_device()
                 if self.device is None:
                     time.sleep(2)
-                    continue
+                continue
             try:
-                ready, _, _ = select.select([self.device.fd], [], [], 0.5)
+                ready, _, _ = select.select([device.fd], [], [], 0.5)
                 if ready:
-                    for event in self.device.read():
+                    for event in device.read():
                         if event.type == ecodes.EV_KEY:
                             self._on_key(event.code, event.value)
-            except OSError:
-                self.logger.info("Keyboard disconnected")
+            except (OSError, ValueError):  # Unplugged, or closed by stop()
+                if self.running:
+                    self.logger.info("Keyboard disconnected")
                 self.device = None
             except Exception as e:
                 self.logger.error(f"Keyboard event error: {e}", exc_info=True)

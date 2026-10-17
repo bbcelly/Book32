@@ -43,7 +43,7 @@ function showTab(name) {
     if (!$(name)) name = 'dashboard';
     document.querySelectorAll('.tab-content').forEach((s) => s.classList.toggle('active', s.id === name));
     document.querySelectorAll('.nav-links button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
-    if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
+    if (location.hash !== `#/${name}`) history.replaceState(null, '', `#/${name}`);
     (tabLoaders[name] || (() => {}))();
 }
 
@@ -466,7 +466,8 @@ document.addEventListener('DOMContentLoaded', () => {
     $('paired-devices').addEventListener('click', (e) => { if (e.target.dataset.remove) removeDevice(e.target.dataset.remove); });
     $('found-devices').addEventListener('click', (e) => { if (e.target.dataset.pair) pairDevice(e.target.dataset.pair, e.target.dataset.name); });
     $('pisugar-link').href = `http://${location.hostname}:8421`;
-    showTab(location.hash.slice(1) || 'dashboard');
-    if (location.hash.slice(1) !== 'dashboard') refreshStats();
+    const start = location.hash.replace(/^#\/?/, '');  // '#/name': not an element id, so no jump
+    showTab(start || 'dashboard');
+    if (start && start !== 'dashboard') refreshStats();
     setInterval(() => { if (document.visibilityState === 'visible') refreshStats(); }, 60000);
 });

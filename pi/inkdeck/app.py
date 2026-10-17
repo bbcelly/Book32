@@ -354,8 +354,13 @@ class InkDeckApp:
             self._open_book_path(book["path"])
 
     def _open_book_path(self, path: str, start_fraction: float = None):
+        shown = {"percent": -100.0, "time": 0.0}
+
         def progress(percent, message):
-            self.display.display_image(self.reader.loading_image(percent, message), use_partial=True)
+            # Each e-paper update takes about a second, so update only every 10%.
+            if percent - shown["percent"] >= 10 and time.monotonic() - shown["time"] >= 2:
+                shown.update(percent=percent, time=time.monotonic())
+                self.display.display_image(self.reader.loading_image(percent, message), use_partial=True)
 
         try:
             self.display.display_image(self.reader.loading_image(0, "Opening book..."), use_partial=False)
