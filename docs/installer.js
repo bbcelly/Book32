@@ -1,5 +1,10 @@
 const ESPTOOL_MODULE_URL = 'https://unpkg.com/esptool-js@0.6.1/bundle.js';
 const RELEASE_VERSION = '1.4.3';
+// Only USB serial chips found on ESP32 boards appear in the port picker:
+// Espressif native USB (Book32, LILYGO), WCH CH34x (the Sticky), Silicon
+// Labs CP210x and FTDI. Without filters Linux lists every /dev/ttyS* port.
+const SERIAL_FILTERS = [0x303a, 0x1a86, 0x10c4, 0x0403].map((usbVendorId) => ({ usbVendorId }));
+const IS_LINUX = /Linux/.test(navigator.userAgent || '') && !/Android/.test(navigator.userAgent || '');
 
 const profiles = {
   book32: {
@@ -156,12 +161,20 @@ function bytesEqual(left, right) {
   return true;
 }
 
+// Linux blocks serial ports in ways Windows and macOS do not.
+const LINUX_PORT_HELP = 'On Linux: add yourself to the dialout group (sudo usermod -aG dialout $USER, then log out and back in); '
+  + 'with Snap Chromium also run sudo snap connect chromium:raw-usb; and close any serial monitor using the port.';
+const LINUX_SYNC_HELP = 'On Linux, ModemManager can grab the port while flashing: stop it (sudo systemctl stop ModemManager) and try again.';
+
 function friendlyError(error) {
   const message = error?.message || String(error);
-  if (/failed to connect|sync|timeout/i.test(message)) {
-    return 'Could not connect to the ESP32-S3. Hold BOOT, tap RESET, release BOOT, and try again.';
+  if (error?.name === 'NetworkError' || /failed to open|access denied|permission/i.test(message)) {
+    return `Could not open the serial port. ${IS_LINUX ? LINUX_PORT_HELP : 'Close any other program using the port and try again.'} (${message})`;
   }
-  if (/network|fetch|download|http/i.test(message)) {
+  if (/failed to connect|sync|timeout/i.test(message)) {
+    return `Could not connect to the ESP32-S3. Hold BOOT, tap RESET, release BOOT, and try again.${IS_LINUX ? ` ${LINUX_SYNC_HELP}` : ''} (${message})`;
+  }
+  if (/fetch|download|http/i.test(message)) {
     return `Firmware download failed. Check your internet connection and try again. (${message})`;
   }
   return message;
@@ -193,7 +206,7 @@ async function flashSelectedDevice() {
 
   let port;
   try {
-    port = await navigator.serial.requestPort();
+    port = await navigator.serial.requestPort({ filters: SERIAL_FILTERS });
   } catch (error) {
     if (error?.name !== 'NotFoundError') {
       flashNote.textContent = `Could not open the serial-port picker: ${friendlyError(error)}`;
