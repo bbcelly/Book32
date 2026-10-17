@@ -24,6 +24,8 @@ called PiBook.
 - **Terminal and word processor** for a Bluetooth or USB keyboard.
 - **Web interface** for uploading books, settings, the to-do list, a
   terminal, logs and a remote control.
+- **Wi-Fi setup from a phone**, as on ESP32: with no known network in range,
+  InkDeck opens its own InkDeck-Setup network.
 - **Battery savers:** sleep after inactivity, Wi-Fi off while reading, fewer
   CPU cores while reading, and optional boot-level power settings.
 
@@ -62,6 +64,27 @@ Wiring, battery options and power tuning are in
 Any user name and install folder work. Updating from PiBook: install as
 above; the installer copies books, reading positions, to-dos and settings
 from `~/PiBook` and replaces the old `pibook` service.
+
+## Connecting to Wi-Fi
+
+When InkDeck can't reach a saved Wi-Fi network (the first start, a new
+router, a move), the screen shows **Wi-Fi setup** after about 20 seconds
+(90 when it has saved networks):
+
+1. On a phone or computer, join the Wi-Fi network **InkDeck-Setup** (no
+   password). The phone's camera can also scan the code on the screen.
+2. The setup page opens by itself, like a hotel's sign-in page. If it
+   doesn't, open `http://192.168.4.1`.
+3. Choose your network, enter its password and tap **Connect**. The screen
+   then shows the address of the web interface on your network.
+
+If the password is wrong, InkDeck-Setup comes back within a minute and the
+setup page says what went wrong. While InkDeck-Setup is up and unused, InkDeck
+tries its saved networks again every five minutes, so after a router
+restart it reconnects by itself.
+
+In the web interface, **Settings → Wi-Fi** saves more networks (for example
+before a move), forgets them, and starts Wi-Fi setup on request.
 
 ## Using it
 
@@ -103,6 +126,23 @@ In the web interface's Terminal, run `update`. Or over SSH:
 ```
 
 Updates never touch your books or the `data/` folder.
+
+## Passing it on
+
+To give or sell an InkDeck, reset it in the web interface's Terminal (or
+over SSH):
+
+```bash
+sudo ./scripts/factory_reset.sh --yes
+```
+
+This erases books, reading positions, to-dos, documents, settings and logs.
+It also forgets every Wi-Fi network and Bluetooth pairing, and removes SSH
+keys and shell history. It clears the Wi-Fi password and login that
+Raspberry Pi Imager left on the SD card's boot partition. Then it turns SSH
+off, locks the password, renames the Pi `inkdeck`, and restarts it into Wi-Fi
+setup. The web interface's Terminal can turn SSH back on:
+`sudo passwd <user>`, then `sudo systemctl enable --now ssh`.
 
 ## Files and settings
 
