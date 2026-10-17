@@ -4,7 +4,7 @@
 # Run from the app folder (the one holding inkdeck/ and scripts/):
 #   ./scripts/install.sh
 # Works for any user name and install location. Installs system packages,
-# Python packages and the Waveshare e-Paper library, enables SPI and I2C,
+# and Python packages, enables SPI and I2C,
 # installs the inkdeck service and, if an old PiBook install is found in
 # ~/PiBook, copies its books, reading positions, to-dos and settings.
 #
@@ -44,15 +44,9 @@ sudo apt-get install -y python3-pip python3-dev git fonts-dejavu-core fonts-free
 echo "== Python packages"
 pip3 install --break-system-packages -r requirements.txt
 
-echo "== Waveshare e-Paper library"
-if [ ! -d lib/waveshare_epd ]; then
-    mkdir -p lib
-    tmp="$(mktemp -d)"
-    git clone --depth 1 --filter=blob:none --sparse https://github.com/waveshare/e-Paper "$tmp"
-    git -C "$tmp" sparse-checkout set RaspberryPi_JetsonNano/python/lib/waveshare_epd
-    cp -r "$tmp/RaspberryPi_JetsonNano/python/lib/waveshare_epd" lib/
-    rm -rf "$tmp"
-fi
+# InkDeck drives the panel itself (inkdeck/hardware/epd7in5.py); the Waveshare
+# library that older versions downloaded into lib/ is no longer used.
+rm -rf lib/waveshare_epd
 
 echo "== SPI and I2C"
 sudo raspi-config nonint do_spi 0

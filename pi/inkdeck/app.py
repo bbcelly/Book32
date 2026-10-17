@@ -80,7 +80,8 @@ class InkDeckApp:
         os.makedirs(self.books_dir, exist_ok=True)
         self.web_port = config.get("web.port", 5000)
 
-        self.display = DisplayDriver(width, height, config.get("display.rotation", 90))
+        self.display = DisplayDriver(width, height, config.get("display.rotation", 90),
+                                     config.get("display.spi_hz", 10_000_000))
         self.power = PowerManager(self.logger)
         self.battery = None
         if config.get("battery.enabled", True):
@@ -442,7 +443,6 @@ class InkDeckApp:
         with self.lock:
             self.logger.info("Shutting down")
             self._save_position()
-            self.display.reinitialize()
             self.display.display_image(message_screen(self.display.width, self.display.height,
                                                       self.settings.get("shutdown_message")), use_partial=False)
             self.stop()
@@ -458,6 +458,7 @@ class InkDeckApp:
         while self.running:
             time.sleep(1)
             try:
+                self.display.idle()
                 if self.power.should_sleep():
                     self._sleep()
                     continue

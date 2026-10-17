@@ -9,6 +9,7 @@ display:
   width: 480                  # Logical size after rotation (portrait)
   height: 800
   rotation: 90                # The 800 x 480 panel is mounted in portrait
+  spi_hz: 10000000            # Panel SPI clock; 4000000 if the picture shows noise
 
 library:
   books_directory: books      # Relative to the app folder; ~ is allowed

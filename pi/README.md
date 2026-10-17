@@ -130,9 +130,9 @@ its output with `journalctl -u inkdeck -f`.
 
 ## Development
 
-The app runs on any computer with Python 3.10 or later: without the
-Waveshare library, gpiozero or a battery it runs in mock mode and saves each
-screen to `data/display.png`.
+The app runs on any computer with Python 3.10 or later: without spidev,
+gpiozero or a battery it runs in mock mode and saves each screen to
+`data/display.png`.
 
 ```bash
 pip install -r requirements.txt pytest
@@ -144,5 +144,4 @@ python -m pytest tests
 
 InkDeck for Raspberry Pi is released under the MIT License; see
 [LICENSE](LICENSE). The Open Sans font in `assets/fonts` is under the SIL Open
-Font License ([OpenSans-OFL.txt](assets/fonts/OpenSans-OFL.txt)). The Waveshare
-e-Paper library that the installer downloads has its own license.
+Font License ([OpenSans-OFL.txt](assets/fonts/OpenSans-OFL.txt)).

@@ -8,6 +8,13 @@ The Waveshare 7.5 inch e-Paper HAT (V2, 800 × 480) plugs onto the Pi's
 way. Page turns use the panel's partial refresh; a full refresh every few page
 turns (10 by default, set in the web interface) clears ghosting.
 
+InkDeck drives the panel with its own driver (`inkdeck/hardware/epd7in5.py`),
+using the same fast waveforms as InkDeck on the ESP32 Book32, which has this
+panel: a full refresh takes about 1.6 s (Waveshare's library: 3.9 s) and a
+page turn about 0.5 s (0.7 s). The panel is powered down 10 seconds after the
+last change. SPI runs at 10 MHz; if the picture shows noise, set a lower
+`display.spi_hz` in `config/local.yaml`, such as 4000000.
+
 ## Button
 
 One push button between **GPIO 5 (physical pin 29)** and **GND (pin 30)**.

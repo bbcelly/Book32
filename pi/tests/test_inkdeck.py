@@ -163,6 +163,71 @@ def test_reading_fonts(epub):
         Settings(paths.data_path("font-test.json")).update({"font_family": "Comic Sans"})
 
 
+def test_panel_driver_commands(monkeypatch):
+    """The fast driver's command sequence, against fake SPI and GPIO."""
+    import sys
+    import types
+
+    from inkdeck.hardware import epd7in5
+
+    sent = []
+
+    class Pin:
+        def __init__(self, pin, **kwargs):
+            self.pin, self.value = pin, 1
+
+        def on(self):
+            self.value = 1
+            if self.pin == epd7in5.RST_PIN:
+                sent.append("reset")
+
+        def off(self):
+            self.value = 0
+
+        def close(self):
+            pass
+
+    class Spi:
+        def open(self, bus, device):
+            pass
+
+        def writebytes(self, data):
+            sent.append(("dc", dc.value, list(data)))
+
+        def writebytes2(self, data):
+            sent.append(("frame", bytes(data)))
+
+        def close(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "gpiozero", types.SimpleNamespace(DigitalOutputDevice=Pin, DigitalInputDevice=Pin))
+    monkeypatch.setitem(sys.modules, "spidev", types.SimpleNamespace(SpiDev=Spi))
+    monkeypatch.setattr(epd7in5.time, "sleep", lambda s: None)
+    panel = epd7in5.EPD7in5()
+    dc = panel._dc
+    frame = bytes(range(256)) * (epd7in5.FRAME_BYTES // 256) + bytes(epd7in5.FRAME_BYTES % 256)
+
+    def commands():
+        return [e[2][0] for e in sent if e[0] == "dc" and e[1] == 0]
+
+    panel.display(frame, full=False)  # The first frame is always full
+    assert ("frame", bytes([255]) * epd7in5.FRAME_BYTES) in sent and ("frame", frame) in sent
+    assert ("dc", 1, [0x29, 0x07]) in sent and ("dc", 1, [epd7in5.FULL_TEMPERATURE]) in sent
+    assert commands()[-1] == 0x12 and 0x91 not in commands()
+    sent.clear()
+    panel.display(frame, full=False)
+    assert "reset" not in sent and 0x04 not in commands()  # No reset or power-up between pages
+    assert ("dc", 1, [0xA9, 0x07]) in sent and ("dc", 1, [epd7in5.PARTIAL_TEMPERATURE]) in sent
+    assert sent.count(("frame", frame)) == 1 and commands()[-2:] == [0x12, 0x92]
+    sent.clear()
+    panel.power_off()
+    panel.display(frame, full=True)
+    assert commands()[:4] == [0x02, 0x00, 0x50, 0xE5] and 0x04 in commands()
+    sent.clear()
+    panel.close()
+    assert commands() == [0x02, 0x07]
+
+
 def test_cover_from_opf_metadata(epub, tmp_path):
     covers = CoverExtractor(tmp_path / "covers")
     cover = covers.get_cover(str(epub), (100, 150))

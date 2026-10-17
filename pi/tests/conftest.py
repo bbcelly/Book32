@@ -14,7 +14,7 @@ os.environ["INKDECK_DATA"] = tempfile.mkdtemp(prefix="inkdeck-test-")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Tests never drive the real panel or GPIO, even on a Pi.
-sys.modules["waveshare_epd"] = None
+sys.modules["spidev"] = None
 sys.modules["gpiozero"] = None
 
 from PIL import Image  # noqa: E402
