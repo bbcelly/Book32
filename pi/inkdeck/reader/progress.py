@@ -28,19 +28,27 @@ class ProgressManager:
             if isinstance(entry, dict) and "current_page" in entry:
                 self._data[book_key(key)] = entry
 
-    def save_progress(self, book_path: str, current_page: int, total_pages: int):
+    def save_progress(self, book_path: str, current_page: int, total_pages: int, chapter: str = ""):
         with self._lock:
             self._data[book_key(book_path)] = {
                 "current_page": current_page,
                 "total_pages": total_pages,
+                "chapter": chapter,
                 "last_read": datetime.now().isoformat(timespec="seconds"),
             }
             save_json(self.path, self._data)
 
-    def load_progress(self, book_path: str) -> Optional[int]:
+    def load_progress(self, book_path: str, total_pages: int = None) -> Optional[int]:
+        """The saved page. When the book now has a different number of pages (a new
+        text size or layout), the page at the same point in the book."""
         with self._lock:
             entry = self._data.get(book_key(book_path))
-            return entry["current_page"] if entry else None
+        if not entry:
+            return None
+        page, saved_total = entry["current_page"], entry.get("total_pages")
+        if total_pages and saved_total and saved_total != total_pages:
+            page = round(page * total_pages / saved_total)
+        return page
 
     def clear_progress(self, book_path: str):
         with self._lock:

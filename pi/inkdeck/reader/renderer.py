@@ -2,9 +2,11 @@
 fonts as 1-bit images, sharp on e-paper.
 
 Basic formatting is kept: bold, italic, headings, centering, images (SVG via
-cairosvg when installed) and simple tables. Page layout is cached in
-data/cache/, so a book opens quickly the second time. Images are decoded only
-when a page that shows them is drawn.
+cairosvg when installed) and simple tables. Chapters come from the book's
+table of contents (EPUB 3 nav or EPUB 2 NCX), including chapters that start
+part-way through a file. Page layout is cached in data/cache/, so a book
+opens quickly the second time. Images are decoded only when a page that shows
+them is drawn.
 """
 
 import hashlib
@@ -12,8 +14,11 @@ import io
 import logging
 import os
 import pickle
+import posixpath
 import re
-from typing import List, NamedTuple, Union
+from bisect import bisect_right
+from typing import Dict, List, NamedTuple, Optional, Union
+from urllib.parse import unquote
 
 import ebooklib
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -28,7 +33,7 @@ except ImportError:
     cairosvg = None
 
 # Bump when the layout or the cache format changes, so old caches are ignored.
-LAYOUT_VERSION = 2
+LAYOUT_VERSION = 3
 
 _FONT_FAMILIES = [
     {"normal": "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
@@ -73,7 +78,31 @@ class TableToken(NamedTuple):
     new_paragraph: bool = True
 
 
-Token = Union[TextToken, ImageToken, TableToken]
+class ChapterToken(NamedTuple):
+    """Marks where a table-of-contents entry starts."""
+    index: int
+    new_paragraph: bool = False
+
+
+class Chapter(NamedTuple):
+    title: str
+    page: int   # First page, from 0
+    depth: int  # 0 for top-level entries; parts can hold nested chapters
+
+
+Token = Union[TextToken, ImageToken, TableToken, ChapterToken]
+
+
+def _flatten_toc(entries, depth=0):
+    """(title, href, depth) for every entry of ebooklib's nested book.toc."""
+    for entry in entries:
+        if isinstance(entry, (tuple, list)) and len(entry) == 2:
+            section, children = entry
+            if getattr(section, "href", None):
+                yield section.title, section.href, depth
+            yield from _flatten_toc(children, depth + 1)
+        elif getattr(entry, "href", None):
+            yield entry.title, entry.href, depth
 
 
 class PillowTextRenderer:
@@ -99,6 +128,7 @@ class PillowTextRenderer:
         self.fonts = {}
         self.pages = []  # Each page: list of (x, y, text, style) or (x, y, data, 'IMAGE'|'TABLE', w, h)
         self.page_count = 0
+        self.chapters: List[Chapter] = []
         self.book = None
         self._image_items = {}  # EPUB image name -> ebooklib item
         self._decoded = {}      # EPUB image name -> PIL image
@@ -170,27 +200,35 @@ class PillowTextRenderer:
             with open(cache, "rb") as f:
                 data = pickle.load(f)
             self.pages, self.page_count = data["pages"], data["page_count"]
-            self.logger.info(f"Layout loaded from cache: {self.page_count} pages")
+            self.chapters = [Chapter(*c) for c in data["chapters"]]
+            self.logger.info(f"Layout loaded from cache: {self.page_count} pages, {len(self.chapters)} chapters")
             return
-        except (OSError, pickle.UnpicklingError, KeyError, EOFError, AttributeError):
+        except (OSError, pickle.UnpicklingError, KeyError, EOFError, AttributeError, TypeError):
             pass
 
-        docs = list(self.book.get_items_of_type(ebooklib.ITEM_DOCUMENT))
+        docs = self._reading_order()
+        titles, anchors = self._toc_anchors(docs)
         tokens: List[Token] = []
         for index, item in enumerate(docs):
             self.progress(15 + 65 * index / max(1, len(docs)), f"Reading chapter {index + 1} of {len(docs)}...")
+            targets = anchors.get(item.get_name(), {})
             try:
                 html = item.get_content().decode("utf-8", errors="replace")
-                chapter = self._parse_html(html)
+                chapter = self._parse_html(html, targets)
             except Exception as e:
                 self.logger.warning(f"Skipping chapter {item.get_name()}: {e}")
-                continue
+                chapter = []
+            # Entries for the whole file, or for ids the file doesn't have, start at its top.
+            found = {t.index for t in chapter if isinstance(t, ChapterToken)}
+            tokens.extend(ChapterToken(i) for ids in targets.values() for i in ids if i not in found)
             if chapter:
                 tokens.extend(chapter)
                 tokens.append(TextToken("", "normal", new_paragraph=True))
 
         self.progress(85, "Laying out pages...")
-        self._reflow_pages(tokens)
+        starts = self._reflow_pages(tokens)
+        chapters = [Chapter(title, starts[i], depth) for i, (title, depth) in enumerate(titles) if i in starts]
+        self.chapters = sorted(chapters, key=lambda c: c.page)  # Stable: TOC order within a page
         try:
             cache.parent.mkdir(parents=True, exist_ok=True)
             stamp = cache.name.split(".")[0]
@@ -198,10 +236,48 @@ class PillowTextRenderer:
                 if not old.name.startswith(stamp + "."):
                     old.unlink(missing_ok=True)  # Layouts of an older copy of this book
             with open(cache, "wb") as f:
-                pickle.dump({"pages": self.pages, "page_count": self.page_count}, f)
+                pickle.dump({"pages": self.pages, "page_count": self.page_count,
+                             "chapters": [tuple(c) for c in self.chapters]}, f)
         except OSError as e:
             self.logger.warning(f"Could not cache layout: {e}")
-        self.logger.info(f"Laid out {self.page_count} pages")
+        self.logger.info(f"Laid out {self.page_count} pages, {len(self.chapters)} chapters")
+
+    def _reading_order(self) -> list:
+        """The book's documents in spine (reading) order; manifest order can differ."""
+        docs = []
+        for idref, _linear in self.book.spine:
+            item = self.book.get_item_with_id(idref)
+            if item is not None and item.get_type() == ebooklib.ITEM_DOCUMENT and item not in docs:
+                docs.append(item)
+        return docs or list(self.book.get_items_of_type(ebooklib.ITEM_DOCUMENT))
+
+    def _toc_anchors(self, docs):
+        """The table of contents as [(title, depth)], and, per document name,
+        {element id or "": [entry indexes]} for where each entry starts."""
+        names = {item.get_name() for item in docs}
+        by_base: Dict[str, str] = {}
+        for name in names:
+            by_base.setdefault(posixpath.basename(name), name)
+        titles, anchors = [], {}
+        for title, href, depth in _flatten_toc(self.book.toc or []):
+            path, _, fragment = unquote(href).partition("#")
+            path = posixpath.normpath(path) if path else ""
+            name = path if path in names else by_base.get(posixpath.basename(path))
+            title = " ".join(str(title or "").split())
+            if not name or not title:
+                continue
+            anchors.setdefault(name, {}).setdefault(fragment, []).append(len(titles))
+            titles.append((title, depth))
+        return titles, anchors
+
+    def chapter_index(self, page: int) -> Optional[int]:
+        """Index in self.chapters of the chapter a page belongs to; None before the first."""
+        index = bisect_right([c.page for c in self.chapters], page) - 1
+        return index if index >= 0 else None
+
+    def chapter_at(self, page: int) -> Optional[Chapter]:
+        index = self.chapter_index(page)
+        return self.chapters[index] if index is not None else None
 
     # ---- Images ----
 
@@ -252,11 +328,14 @@ class PillowTextRenderer:
 
     # ---- Parsing ----
 
-    def _parse_html(self, html: str) -> List[Token]:
+    def _parse_html(self, html: str, anchors: Optional[Dict[str, list]] = None) -> List[Token]:
+        """Tokens for one document. anchors maps element ids to the table-of-contents
+        entries that start there; each one found becomes a ChapterToken."""
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["head", "script", "style", "title", "meta"]):
             tag.decompose()
         tokens: List[Token] = []
+        pending = {key: ids for key, ids in (anchors or {}).items() if key}
 
         def end_paragraph():
             if tokens and isinstance(tokens[-1], TextToken) and not tokens[-1].new_paragraph:
@@ -270,6 +349,8 @@ class PillowTextRenderer:
                 return
             if not isinstance(node, Tag):
                 return
+            for index in pending.pop(node.get("id"), ()) if pending else ():
+                tokens.append(ChapterToken(index))
             if node.name == "table":
                 rows = [[cell.get_text(" ", strip=True) for cell in tr.find_all(["td", "th"])]
                         for tr in node.find_all("tr")]
@@ -314,8 +395,11 @@ class PillowTextRenderer:
 
     # ---- Layout ----
 
-    def _reflow_pages(self, tokens: List[Token]):
+    def _reflow_pages(self, tokens: List[Token]) -> Dict[int, int]:
+        """Lay tokens out into self.pages. Returns {chapter entry: first page}."""
         self.pages = []
+        starts: Dict[int, int] = {}
+        marks = []  # Chapter entries waiting for the next line, image or table
         page = []
         bottom = self.height - self.margin_bottom
         y = self.margin_top
@@ -328,10 +412,16 @@ class PillowTextRenderer:
             self.pages.append(page)
             page, y = [], self.margin_top
 
+        def place_marks():
+            for index in marks:
+                starts[index] = len(self.pages)
+            marks.clear()
+
         def finish_line(height):
             nonlocal y, line, line_height
             if y + height > bottom:
                 new_page()
+            place_marks()
             page.extend((lx, y, text, style) for text, style, lx in line)
             y += int(height * self.line_spacing)
             line, line_height = [], 0
@@ -339,6 +429,10 @@ class PillowTextRenderer:
         for count, token in enumerate(tokens, 1):
             if count % 2000 == 0:
                 self.progress(85 + 14 * count / len(tokens), "Laying out pages...")
+
+            if isinstance(token, ChapterToken):
+                marks.append(token.index)
+                continue
 
             if isinstance(token, TableToken):
                 if line:
@@ -349,6 +443,7 @@ class PillowTextRenderer:
                 table_height = row_height * len(token.rows)
                 if y + table_height > bottom and page:
                     new_page()
+                place_marks()
                 page.append((self.margin_left, y, token.rows, "TABLE", col_width, row_height))
                 y += table_height + self.paragraph_spacing * 2
                 x = self.margin_left + self.paragraph_indent
@@ -361,6 +456,7 @@ class PillowTextRenderer:
                 w, h = max(1, int(token.width * scale)), max(1, int(token.height * scale))
                 if y + h > bottom and page:
                     new_page()
+                place_marks()
                 page.append((self.margin_left + (self.text_width - w) // 2, y, token.name, "IMAGE", w, h))
                 y += h + self.paragraph_spacing * 2
                 x = self.margin_left + self.paragraph_indent
@@ -395,10 +491,14 @@ class PillowTextRenderer:
             self.pages.append(page)
         self.pages = self.pages or [[]]
         self.page_count = len(self.pages)
+        for index in marks:  # Entries after the last text
+            starts[index] = self.page_count - 1
+        return starts
 
     # ---- Drawing ----
 
-    def render_page(self, page_num: int, show_page_number: bool = True) -> Image.Image:
+    def render_page(self, page_num: int) -> Image.Image:
+        """The page's text and pictures; the reader draws its footer on top."""
         image = Image.new("1", (self.width, self.height), 1)
         draw = ImageDraw.Draw(image)
         normal = self.fonts["normal"]
@@ -428,10 +528,6 @@ class PillowTextRenderer:
                             draw.line([(col_x, y), (col_x, y + table_h)], fill=0, width=1)
                         text = cell if len(cell) <= max_chars else cell[:max_chars - 1] + "…"
                         draw.text((col_x + 5, row_y + (h - self.base_font_size) // 2), text, font=normal, fill=0)
-        if show_page_number:
-            label = f"Page {page_num + 1} of {self.page_count}"
-            draw.text(((self.width - draw.textlength(label, font=normal)) // 2, self.height - 25),
-                      label, font=normal, fill=0)
         return image
 
     def get_page_count(self) -> int:

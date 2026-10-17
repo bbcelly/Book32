@@ -182,15 +182,19 @@ def _draw_home_icon(draw: ImageDraw.ImageDraw, x: int, y: int, size):
 
 
 class ReaderScreen:
-    """The open book. Rendered pages are cached; the battery is drawn on top
-    at display time, so cached pages never show an old level."""
+    """The open book. Rendered pages are cached; the footer (chapter, page and
+    percentage, like InkDeck on ESP32) and the battery are drawn on top at
+    display time, so settings changes and battery levels never go stale."""
 
-    def __init__(self, width: int, height: int, zoom_factor: float = 1.0, cache_size: int = 3,
-                 show_page_numbers: bool = True, battery=None):
+    FOOTER_Y = 26  # Footer text top, from the bottom edge
+
+    def __init__(self, width: int, height: int, zoom_factor: float = 1.0, cache_size: int = 3, battery=None):
         self.logger = logging.getLogger(__name__)
         self.width, self.height = width, height
         self.zoom_factor = zoom_factor
-        self.show_page_numbers = show_page_numbers
+        self.show_chapter = True
+        self.show_page_numbers = True
+        self.show_percentage = True
         self.battery = battery
         self.cache_size = cache_size
         self.renderer = None
@@ -232,31 +236,59 @@ class ReaderScreen:
         if self.renderer:
             self.current_page = max(0, min(page, self.page_count - 1))
 
-    def invalidate(self):
-        """Drop rendered pages (after a display setting changes)."""
-        if self.page_cache:
-            self.page_cache.clear()
+    @property
+    def chapters(self) -> list:
+        return self.renderer.chapters if self.renderer else []
+
+    def chapter_title(self, page: int = None) -> str:
+        """The chapter a page is in ("" before the first chapter or without a table of contents)."""
+        chapter = self.renderer.chapter_at(self.current_page if page is None else page) if self.renderer else None
+        return chapter.title if chapter else ""
+
+    def percent_read(self) -> int:
+        return round((self.current_page + 1) * 100 / self.page_count) if self.page_count else 0
 
     def get_current_image(self) -> Image.Image:
         if not self.renderer:
             return blank(self.width, self.height)
         page = self.page_cache.get(self.current_page)
         if page is None:
-            page = self.renderer.render_page(self.current_page, show_page_number=self.show_page_numbers)
+            page = self.renderer.render_page(self.current_page)
             self.page_cache.put(self.current_page, page)
-        if self.battery is None:
-            return page
         page = page.copy()
         draw = ImageDraw.Draw(page)
-        draw.rectangle([self.width - 96, 2, self.width - 2, 24], fill=WHITE)
-        draw_battery(draw, self.width - 10, 6, self.battery)
+        self._draw_footer(draw)
+        if self.battery is not None:
+            draw.rectangle([self.width - 96, 2, self.width - 2, 24], fill=WHITE)
+            draw_battery(draw, self.width - 10, 6, self.battery)
         return page
+
+    def _draw_footer(self, draw: ImageDraw.ImageDraw):
+        """Chapter on the left, page in the middle, percentage on the right."""
+        fnt, margin, gap = font(15), 16, 14
+        y = self.height - self.FOOTER_Y
+        right = self.width - margin
+        if self.show_percentage:
+            label = f"{self.percent_read()}%"
+            right -= text_width(draw, label, fnt)
+            draw.text((right, y), label, font=fnt, fill=BLACK)
+            right -= gap
+        if self.show_page_numbers:
+            label = f"Page {self.current_page + 1} of {self.page_count}"
+            width = text_width(draw, label, fnt)
+            x = min((self.width - width) // 2, right - width)
+            draw.text((x, y), label, font=fnt, fill=BLACK)
+            right = x - gap
+        title = self.chapter_title() if self.show_chapter else ""
+        if title:
+            lines = wrap_text(draw, title, fnt, max(40, right - margin), max_lines=1)
+            draw.text((margin, y), lines[0], font=fnt, fill=BLACK)
 
     def prerender_next(self):
         """Render the next page ahead of time, so the next page turn is quicker."""
         nxt = self.current_page + 1
         if self.renderer and nxt < self.page_count and nxt not in self.page_cache:
-            self.page_cache.put(nxt, self.renderer.render_page(nxt, show_page_number=self.show_page_numbers))
+            self.page_cache.put(nxt, self.renderer.render_page(nxt))
 
     def loading_image(self, percentage: float, message: str) -> Image.Image:
         image = blank(self.width, self.height)

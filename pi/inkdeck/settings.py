@@ -8,7 +8,9 @@ from .paths import data_path, load_json, save_json
 DEFAULTS = {
     "zoom": 1.0,
     "full_refresh_interval": 10,
+    "show_chapter": True,
     "show_page_numbers": True,
+    "show_percentage": True,
     "items_per_page": 4,
     "wifi_while_reading": False,
     "sleep_enabled": True,

@@ -35,7 +35,7 @@ from .display import DisplayDriver
 from .hardware.battery import BatteryMonitor
 from .hardware.buttons import GPIOButtons
 from .paths import SCRIPTS_DIR, resolve
-from .power import PowerManager
+from .power import PowerManager, boot_cores, boot_undervolt
 from .reader.progress import ProgressManager
 from .settings import Settings
 from .ui.common import message_screen
@@ -45,6 +45,7 @@ from .ui.screens import HOME_ENTRY, LibraryScreen, MainMenuScreen, ReaderScreen
 COMMANDS = ("next", "prev", "select", "toggle", "back", "home")
 # Aliases accepted from the PiSugar button and older PiBook setups.
 ALIASES = {"next_page": "next", "prev_page": "prev", "menu": "home"}
+FOOTER_SETTINGS = ("show_chapter", "show_page_numbers", "show_percentage")
 
 
 def setup_logging(config: Config):
@@ -69,6 +70,7 @@ class InkDeckApp:
         self.logger = logging.getLogger("inkdeck")
         self.logger.info(f"InkDeck {VERSION} for Raspberry Pi starting")
         self.settings = Settings()
+        self._sync_boot_settings()
         self.lock = threading.RLock()
         self.running = False
 
@@ -123,7 +125,8 @@ class InkDeckApp:
         self.power.sleep_timeout = s["sleep_timeout"]
         self.library.sleep_enabled = s["sleep_enabled"]
         self.library.items_per_page = s["items_per_page"]
-        self.reader.show_page_numbers = s["show_page_numbers"]
+        for key in FOOTER_SETTINGS:
+            setattr(self.reader, key, s[key])
         if changed is None:
             self.reader.zoom_factor = s["zoom"]
             return
@@ -134,10 +137,17 @@ class InkDeckApp:
                 self._open_book_path(path, start_fraction=fraction)
             else:
                 self.reader.zoom_factor = s["zoom"]
-                if "show_page_numbers" in changed:
-                    self.reader.invalidate()
                 if self.current in (Screen.LIBRARY, Screen.READER):
                     self.render()
+
+    def _sync_boot_settings(self):
+        """Show what the boot files really say: they can be edited by hand, and a
+        duplicate over_voltage line once made the saved value wrong."""
+        actual = {key: value for key, value in (("undervolt", boot_undervolt()), ("boot_cores", boot_cores()))
+                  if value is not None}
+        changed = self.settings.update(actual)
+        if changed:
+            self.logger.info(f"Settings updated from the boot files: {changed}")
 
     def update_settings(self, changes: dict) -> dict:
         """Save settings from the web interface. Returns warnings for boot settings
@@ -374,7 +384,7 @@ class InkDeckApp:
         if start_fraction is not None:
             self.reader.go_to_page(round(start_fraction * self.reader.page_count))
         else:
-            self.reader.go_to_page(self.progress.load_progress(path) or 0)
+            self.reader.go_to_page(self.progress.load_progress(path, self.reader.page_count) or 0)
         self._enter_reading_mode()
         self.current = Screen.READER
         self.shown = None
@@ -392,7 +402,7 @@ class InkDeckApp:
     def _save_position(self):
         if self.reader.is_open:
             self.progress.save_progress(self.reader.current_book_path, self.reader.current_page,
-                                        self.reader.page_count)
+                                        self.reader.page_count, self.reader.chapter_title())
 
     def _enter_reading_mode(self):
         if not self.settings.get("wifi_while_reading"):

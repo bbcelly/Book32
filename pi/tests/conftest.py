@@ -21,7 +21,9 @@ from PIL import Image  # noqa: E402
 
 
 def make_epub(path: Path, title="Test Book", chapters=3, paragraphs=40, image=True) -> Path:
-    """A small valid EPUB 2 with a cover image, text chapters and an inline image."""
+    """A small valid EPUB 2 with a cover image, text chapters, an inline image and
+    an NCX table of contents. The manifest lists chapters in reverse, so only the
+    spine gives the reading order; chapter 1 has a second entry part-way through."""
     cover = io.BytesIO()
     Image.new("RGB", (300, 450), (40, 80, 160)).save(cover, "PNG")
     body = " ".join(["The quick brown fox jumps over the lazy dog."] * 6)
@@ -30,13 +32,17 @@ def make_epub(path: Path, title="Test Book", chapters=3, paragraphs=40, image=Tr
     files = {}
     for n in range(chapters):
         extra = '<p><img src="../images/cover.png" alt=""/></p>' if image and n == 0 else ""
+        text = [f"<p>{body} <b>Bold</b> <i>italic</i></p>" for _ in range(paragraphs)]
+        if n == 0:
+            text.insert(paragraphs // 2, '<h2 id="interlude">Interlude</h2>')
         files[f"OEBPS/text/ch{n}.xhtml"] = (
             '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>c</title></head>'
-            f"<body><h1>Chapter {n + 1}</h1>{extra}" + "".join(f"<p>{body} <b>Bold</b> <i>italic</i></p>"
-                                                                 for _ in range(paragraphs)) +
+            f"<body><h1>Chapter {n + 1}</h1>{extra}" + "".join(text) +
             "<table><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table></body></html>")
-        manifest.append(f'<item id="ch{n}" href="text/ch{n}.xhtml" media-type="application/xhtml+xml"/>')
+        manifest.insert(1, f'<item id="ch{n}" href="text/ch{n}.xhtml" media-type="application/xhtml+xml"/>')
         spine.append(f'<itemref idref="ch{n}"/>')
+    points = [(f"Chapter {n + 1}", f"text/ch{n}.xhtml") for n in range(chapters)]
+    points.insert(1, ("Interlude", "text/ch0.xhtml#interlude"))
     manifest.append('<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>')
     opf = ('<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">'
            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
@@ -44,8 +50,10 @@ def make_epub(path: Path, title="Test Book", chapters=3, paragraphs=40, image=Tr
            '<meta name="cover" content="cover-img"/></metadata>'
            f'<manifest>{"".join(manifest)}</manifest><spine toc="ncx">{"".join(spine)}</spine></package>')
     ncx = ('<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head/>'
-           '<docTitle><text>t</text></docTitle><navMap><navPoint id="n0" playOrder="1"><navLabel><text>1</text>'
-           '</navLabel><content src="text/ch0.xhtml"/></navPoint></navMap></ncx>')
+           '<docTitle><text>t</text></docTitle><navMap>' +
+           "".join(f'<navPoint id="n{i}" playOrder="{i + 1}"><navLabel><text>{label}</text></navLabel>'
+                   f'<content src="{src}"/></navPoint>' for i, (label, src) in enumerate(points)) +
+           '</navMap></ncx>')
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
         z.writestr("META-INF/container.xml",

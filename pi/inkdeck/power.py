@@ -1,11 +1,14 @@
 """Battery-saving controls: CPU cores, Wi-Fi radio and the inactivity timer."""
 
 import logging
+import re
 import subprocess
 import time
 from pathlib import Path
+from typing import Optional
 
 CPU_DIR = Path("/sys/devices/system/cpu")
+BOOT_DIRS = (Path("/boot/firmware"), Path("/boot"))
 
 
 def _run(args, timeout=10) -> bool:
@@ -25,6 +28,34 @@ def count_cpus(listing: str) -> int:
         elif part:
             total += 1
     return total
+
+
+def _boot_file(name: str, boot_dirs=BOOT_DIRS) -> Optional[str]:
+    for directory in boot_dirs:
+        try:
+            return (Path(directory) / name).read_text()
+        except OSError:
+            continue
+    return None
+
+
+def boot_undervolt(boot_dirs=BOOT_DIRS) -> Optional[int]:
+    """The over_voltage the Pi boots with: the last setting in config.txt wins.
+    0 when there is none; None when config.txt can't be read (not a Pi)."""
+    text = _boot_file("config.txt", boot_dirs)
+    if text is None:
+        return None
+    values = re.findall(r"^\s*over_voltage\s*=\s*(-?\d+)", text, re.MULTILINE)
+    return int(values[-1]) if values else 0
+
+
+def boot_cores(boot_dirs=BOOT_DIRS) -> Optional[int]:
+    """The maxcpus limit in cmdline.txt, 4 without one; None when it can't be read."""
+    text = _boot_file("cmdline.txt", boot_dirs)
+    if text is None:
+        return None
+    match = re.search(r"(?:^|\s)maxcpus=(\d+)", text)
+    return int(match.group(1)) if match else 4
 
 
 class PowerManager:

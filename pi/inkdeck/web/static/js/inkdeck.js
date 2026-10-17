@@ -147,9 +147,10 @@ async function loadProgress() {
     const box = $('progress-list');
     try {
         const { progress } = await api('/api/progress/list');
-        box.innerHTML = progress.length ? '<div class="table-scroll"><table class="data"><thead><tr><th>Book</th><th>Position</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = progress.length ? '<div class="table-scroll"><table class="data"><thead><tr><th>Book</th><th>Chapter</th><th>Position</th><th></th></tr></thead><tbody>' +
             progress.map((p) => `<tr><td>${escapeHtml(p.filename.replace(/\.epub$/i, '').replace(/_/g, ' '))}</td>` +
-                `<td class="mono">${p.current_page} / ${p.total_pages} (${Math.round(p.current_page * 100 / p.total_pages)}%)</td>` +
+                `<td>${p.chapter ? escapeHtml(p.chapter) : '<span class="hint">–</span>'}</td>` +
+                `<td class="mono">${p.current_page} / ${p.total_pages} (${p.percent}%)</td>` +
                 `<td><button class="btn-delete" data-reset="${escapeHtml(p.path)}">Reset</button></td></tr>`).join('') +
             '</tbody></table></div>' : '<p class="hint">No saved positions yet.</p>';
     } catch (e) { box.innerHTML = `<p class="error">${escapeHtml(e.message)}</p>`; }

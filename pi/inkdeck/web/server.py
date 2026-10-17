@@ -187,8 +187,10 @@ class WebServer:
             items = []
             for name, entry in app.progress.get_all_progress().items():
                 total = max(1, entry.get("total_pages", 1))
-                items.append({"path": name, "filename": name, "current_page": entry["current_page"] + 1,
-                              "total_pages": total, "last_read": entry.get("last_read", "")})
+                page = entry["current_page"] + 1
+                items.append({"path": name, "filename": name, "current_page": page, "total_pages": total,
+                              "percent": min(100, round(page * 100 / total)), "chapter": entry.get("chapter", ""),
+                              "last_read": entry.get("last_read", "")})
             items.sort(key=lambda item: item["filename"].lower())
             return jsonify({"progress": items})
 

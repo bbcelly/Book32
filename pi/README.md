@@ -14,8 +14,9 @@ called PiBook.
 
 - **eReader** for EPUB books, with bold and italic text, headings,
   illustrations, simple tables, cover thumbnails and saved reading positions.
-  Text size, page numbers and how often the page fully refreshes are
-  adjustable.
+  Like InkDeck on ESP32, the footer shows the chapter (from the book's table of
+  contents), the page and the percentage read; each can be turned off. Text
+  size and how often the page fully refreshes are adjustable.
 - **To Do** list: add tasks on the web, check them off on the device.
 - **Network scanner** for devices on your network.
 - **Klipper monitor** for 3D printers running Moonraker (Mainsail, Fluidd).

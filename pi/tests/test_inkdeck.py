@@ -18,6 +18,7 @@ from inkdeck.reader.renderer import LAYOUT_DIR, PillowTextRenderer, forget_layou
 from inkdeck.settings import Settings
 from inkdeck.ui.common import message_screen, wrap_text
 from inkdeck.ui.navigation import Screen
+from inkdeck.ui.screens import ReaderScreen
 
 
 # ---- Storage ----
@@ -39,6 +40,7 @@ def test_progress_converts_old_path_keys(tmp_path):
     path.write_text(json.dumps({"/home/pi/PiBook/books/A.epub": {"current_page": 41, "total_pages": 300}}))
     progress = ProgressManager(path)
     assert progress.load_progress("/home/someone/InkDeck/pi/books/A.epub") == 41
+    assert progress.load_progress("A.epub", total_pages=600) == 82  # Same place after a relayout
     progress.save_progress("books/B.epub", 3, 10)
     assert set(json.loads(path.read_text())) == {"A.epub", "B.epub"}
 
@@ -109,6 +111,45 @@ def test_renderer_paginates_caches_and_draws(epub):
     assert bigger.page_count > renderer.page_count
     forget_layouts(str(epub))
     assert not list(LAYOUT_DIR.glob("*.pickle"))
+
+
+def test_chapters_from_table_of_contents(epub):
+    renderer = PillowTextRenderer(str(epub), 480, 800)
+    titles = [c.title for c in renderer.chapters]
+    assert titles == ["Chapter 1", "Interlude", "Chapter 2", "Chapter 3"]
+    pages = [c.page for c in renderer.chapters]
+    assert pages[0] == 0 and pages == sorted(pages) and len(set(pages)) == 4
+    # Spine order: chapter 1's heading is the first text, though the manifest lists it last.
+    assert renderer.pages[0][0][2] == "Chapter"
+    interlude = renderer.chapters[1].page
+    assert any(item[2] == "Interlude" for item in renderer.pages[interlude] if len(item) == 4)
+    assert renderer.chapter_at(interlude - 1).title == "Chapter 1"
+    assert renderer.chapter_at(interlude).title == "Interlude"
+    assert renderer.chapter_at(renderer.page_count - 1).title == "Chapter 3"
+    assert [c.title for c in PillowTextRenderer(str(epub), 480, 800).chapters] == titles  # From the cache
+
+
+def test_reader_footer(epub):
+    reader = ReaderScreen(480, 800)
+    reader.load_epub(str(epub))
+    reader.go_to_page(reader.chapters[2].page)
+    assert reader.chapter_title() == "Chapter 2" and 0 < reader.percent_read() < 100
+    footer = (0, 770, 480, 800)
+    shown = reader.get_current_image().crop(footer)
+    assert shown.getextrema()[0] == 0  # Something drawn
+    reader.show_chapter = reader.show_page_numbers = reader.show_percentage = False
+    assert reader.get_current_image().crop(footer).getextrema()[0] > 0  # All white
+
+
+def test_boot_settings(tmp_path):
+    from inkdeck.power import boot_cores, boot_undervolt
+    assert boot_undervolt([tmp_path]) is None and boot_cores([tmp_path]) is None
+    (tmp_path / "config.txt").write_text("[all]\nover_voltage=-6\n#over_voltage=-8\n[all]\nover_voltage=-2\n")
+    (tmp_path / "cmdline.txt").write_text("console=tty1 root=PARTUUID=x rootwait maxcpus=1\n")
+    assert boot_undervolt([tmp_path]) == -2 and boot_cores([tmp_path]) == 1
+    (tmp_path / "config.txt").write_text("dtparam=spi=on\n")
+    (tmp_path / "cmdline.txt").write_text("console=tty1\n")
+    assert boot_undervolt([tmp_path]) == 0 and boot_cores([tmp_path]) == 4
 
 
 def test_cover_from_opf_metadata(epub, tmp_path):
@@ -242,10 +283,11 @@ def test_web_pages_and_books(client, app, tmp_path):
     assert "Gamma_Book.epub" in [b["filename"] for b in client.get("/api/books").get_json()["books"]]
     assert client.post("/upload", data={"file": (open(upload, "rb"), "notes.txt")}).status_code == 400
 
-    app.progress.save_progress("Gamma_Book.epub", 2, 9)
+    app.progress.save_progress("Gamma_Book.epub", 2, 9, "Chapter 1")
     listed = client.get("/api/progress/list").get_json()["progress"]
     assert listed == [{"path": "Gamma_Book.epub", "filename": "Gamma_Book.epub", "current_page": 3,
-                       "total_pages": 9, "last_read": listed[0]["last_read"]}]
+                       "total_pages": 9, "percent": 33, "chapter": "Chapter 1",
+                       "last_read": listed[0]["last_read"]}]
     assert client.post("/delete/Gamma_Book.epub").get_json()["success"]
     assert client.get("/api/progress/list").get_json()["progress"] == []
     assert client.post("/delete/../config.yaml").status_code == 404
