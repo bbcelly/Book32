@@ -41,6 +41,18 @@ class ClientCallbacks : public NimBLEClientCallbacks {
     void onDisconnect(NimBLEClient*) override { GamepadMgr::getInstance().onDisconnected(); }
 } clientCallbacks;
 
+// Encrypts the link, waiting at most `ms`. NimBLE's secureConnection() waits
+// forever, and pads that start pairing themselves (8BitDo) can leave it hung.
+bool encryptLink(uint32_t ms) {
+    const int rc = NimBLEDevice::startSecurity(client->getConnId());
+    if (rc != 0 && rc != BLE_HS_EALREADY) return false;
+    for (const unsigned long start = millis(); millis() - start < ms; delay(50)) {
+        if (!client->isConnected()) return false;
+        if (client->getConnInfo().isEncrypted()) return true;
+    }
+    return false;
+}
+
 void onNotify(NimBLERemoteCharacteristic* characteristic, uint8_t* data, size_t length, bool) {
     uint8_t id = 0;
     for (int i = 0; i < slotCount; ++i)
@@ -181,7 +193,11 @@ bool GamepadMgr::connectSaved() {
     }
     Serial.printf("Gamepad: connected to %s\n", address.c_str());
     // Most pads require an encrypted link before they send input.
-    if (!client->secureConnection()) Serial.println("Gamepad: pairing/encryption failed (continuing)");
+    if (!encryptLink(10000)) Serial.println("Gamepad: pairing/encryption failed (continuing)");
+    if (!client->isConnected()) {
+        _state = IDLE;
+        return false;
+    }
 
     NimBLERemoteService* hid = client->getService(HID_SERVICE);
     if (!hid) {

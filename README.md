@@ -86,7 +86,7 @@ settings.
 Pair a Bluetooth LE gamepad under **Settings** on the device or in the web
 interface. Put the gamepad in its BLE pairing mode first. Gamepads that only
 use Classic Bluetooth cannot connect, because the ESP32-S3 does not support
-it.
+it. The 8BitDo Ultimate 2C Wireless works in its Bluetooth mode.
 
 ## Games (Inkade)
 
