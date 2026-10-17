@@ -2,6 +2,7 @@
 
 import logging
 import os
+from functools import lru_cache
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -153,7 +154,7 @@ class LibraryScreen:
                                        outline=BLACK, width=3)
             x = 32
             if book["path"] == HOME_ENTRY:
-                _draw_home_icon(draw, x, y + 2, cover_size)
+                image.paste(home_icon(cover_size), (x, y + 2))
             else:
                 image.paste(self.covers.get_cover(book["path"], cover_size), (x, y + 2))
                 draw.rectangle([x, y + 2, x + cover_size[0], y + 2 + cover_size[1]], outline=BLACK, width=1)
@@ -173,12 +174,40 @@ class LibraryScreen:
         return image
 
 
-def _draw_home_icon(draw: ImageDraw.ImageDraw, x: int, y: int, size):
+@lru_cache(maxsize=4)
+def home_icon(size) -> Image.Image:
+    """The "Back to menu" entry: a black tile the size of a book cover with a
+    white house. Drawn at 4x and reduced, so the edges come out clean in 1 bit."""
     w, h = size
-    cx, top, base = x + w // 2, y + h // 4, y + h * 3 // 4
-    draw.polygon([(x + 6, top + w // 3), (cx, top), (x + w - 6, top + w // 3)], outline=BLACK, fill=WHITE)
-    draw.rectangle([x + 14, top + w // 3, x + w - 14, base], outline=BLACK, width=2)
-    draw.rectangle([cx - 7, base - 22, cx + 7, base], fill=BLACK)
+    scale = 4
+    W, H = w * scale, h * scale
+    tile = Image.new("L", (W, H), 255)
+    draw = ImageDraw.Draw(tile)
+    draw.rounded_rectangle([0, 0, W - 1, H - 1], radius=W // 10, fill=0)
+
+    g = W * 0.64                       # House width
+    cx, cy = W / 2, H / 2
+    stroke = g * 0.13                  # Roof thickness
+    apex = (cx, cy - g * 0.52)
+    eave_y = cy - g * 0.02
+    left, right = (cx - g / 2, eave_y), (cx + g / 2, eave_y)
+    # Chimney first, so the roof covers its base.
+    chimney_x = cx + g * 0.22
+    draw.rectangle([chimney_x, cy - g * 0.46, chimney_x + g * 0.11, cy - g * 0.18], fill=255)
+    draw.line([left, apex, right], fill=255, width=int(stroke), joint="curve")
+    for end in (left, right, apex):  # Round the roof's ends
+        r = stroke / 2
+        draw.ellipse([end[0] - r, end[1] - r, end[0] + r, end[1] + r], fill=255)
+    # Walls, with a door cut out.
+    body_left, body_right = cx - g * 0.34, cx + g * 0.34
+    body_top, body_bottom = cy - g * 0.12, cy + g * 0.46
+    draw.rounded_rectangle([body_left, body_top, body_right, body_bottom], radius=g * 0.04, fill=255)
+    door_w, door_top = g * 0.18, cy + g * 0.14
+    draw.rounded_rectangle([cx - door_w / 2, door_top, cx + door_w / 2, body_bottom + 1],
+                           radius=door_w / 2, fill=0)
+    draw.rectangle([cx - door_w / 2, door_top + door_w / 2, cx + door_w / 2, body_bottom + 1], fill=0)
+
+    return tile.resize((w, h), Image.Resampling.LANCZOS).point(lambda v: 255 if v >= 128 else 0, "1")
 
 
 class ReaderScreen:
