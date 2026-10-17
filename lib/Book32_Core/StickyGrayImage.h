@@ -26,9 +26,17 @@ constexpr Tone BOOK32_TONES[] = {{0, 255}, {1, 192}, {2, 136}, {3, 94}, {4, 64},
                                  {5, 43}, {6, 28}, {8, 10}, {11, 0}};
 constexpr int BOOK32_TONE_COUNT = sizeof(BOOK32_TONES) / sizeof(BOOK32_TONES[0]);
 
-// LILYGO (FastEPD 4-bit): native gray levels 0 (black) .. 15 (white).
-constexpr Tone LILYGO_TONES[] = {{0, 0}, {1, 17}, {2, 34}, {3, 51}, {4, 68}, {5, 85}, {6, 102}, {7, 119},
-                                 {8, 136}, {9, 153}, {10, 170}, {11, 187}, {12, 204}, {13, 221}, {14, 238}, {15, 255}};
+// LILYGO (FastEPD 4-bit): gray levels 0 (black) .. 15 (white), each driven
+// from the cleared white by LilygoDisplay::setGrayPulses with these black
+// passes and then white passes (a white pass lifts a gray by ~38). FastEPD's
+// stock six-inch matrix put the levels out of order and had nothing between
+// black and light gray. Lightness was photographed with "gray ramp", as
+// sRGB code relative to the panel's black and white; levels 0-2 all reach
+// the panel's black, and 9 and 10 measure the same.
+constexpr uint8_t LILYGO_BLACKS[16] = {12, 10, 9, 7, 6, 5, 4, 3, 4, 3, 2, 2, 1, 2, 1, 0};
+constexpr uint8_t LILYGO_WHITES[16] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 2, 1, 0};
+constexpr Tone LILYGO_TONES[] = {{0, 0}, {1, 0}, {2, 0}, {3, 31}, {4, 41}, {5, 55}, {6, 79}, {7, 112},
+                                 {8, 145}, {9, 168}, {10, 168}, {11, 205}, {12, 227}, {13, 245}, {14, 253}, {15, 255}};
 constexpr int LILYGO_TONE_COUNT = sizeof(LILYGO_TONES) / sizeof(LILYGO_TONES[0]);
 
 // Converts 8-bit gray (0 black .. 255 white) to pulse counts in place, with

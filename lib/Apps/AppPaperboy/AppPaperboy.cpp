@@ -116,6 +116,8 @@ void AppPaperboy::start() {
     BatteryMgr::getInstance().resetIdleTimer();
     InputMgr::getInstance().setCallback([this](InputAction a) { keyAction(a); });
     InputMgr::getInstance().setTouchCallback([this](uint16_t x, uint16_t y) { tap(x, y); });
+    loadPadMap();
+    _controls = false; _capture = -1; _captureRelease = false;
 #if INKADE_INKBOY_VIDEO
     _screen = SCREEN_LIBRARY;
     _display = InkadeSettings::Active();
@@ -404,6 +406,7 @@ void AppPaperboy::keyAction(InputAction a) {
         if (a == INPUT_SELECT || a == INPUT_BACK) back();
         return;
     }
+    if (_controls) { controlsKey(a); return; }
 #if INKADE_INKBOY_VIDEO
     if (_screen != SCREEN_LIBRARY) {
         if (a == INPUT_BACK) back();
@@ -434,6 +437,7 @@ void AppPaperboy::keyAction(InputAction a) {
 }
 
 void AppPaperboy::back() {
+    if (_controls) { controlsBack(); return; }
 #if INKADE_INKBOY_VIDEO
     if (_screen == SCREEN_TEST) { stopTest(); return; }
     if (_screen == SCREEN_SETTINGS) {
@@ -562,11 +566,13 @@ void AppPaperboy::openBook(const String& path) {
 }
 
 void AppPaperboy::tap(uint16_t x, uint16_t y) {
+    if (_controls) { controlsTap(x, y); return; }
 #if INKADE_INKBOY_VIDEO
     if (_screen == SCREEN_SETTINGS) { settingsTap(x, y); return; }
     if (_screen == SCREEN_TEST) { testTap(x, y); return; }
     if (!_playing && !_paused && y < 60 && x >= InkBoyLibraryUi::SETTINGS_X) { openSettings(); return; }
 #endif
+    if (!_playing && !_paused && InkBoyLibraryUi::controlsAt(x, y)) { openControls(); return; }
     if (y < (_playing && _nesVideo ? NesViewport::Y : 60)) { back(); return; }
     if (_paused) {
         const PauseLayout& p = PAUSE;
@@ -716,13 +722,14 @@ void AppPaperboy::update() {
         Serial.printf("Inkade stopped: %s\n", _message.c_str());
         pauseGame();
     }
-    // A Bluetooth gamepad drives the game directly while playing, and
-    // navigates menus (key actions) otherwise.
+    // A Bluetooth gamepad drives the game directly while playing (through
+    // the Controls mapping), and navigates menus (key actions) otherwise.
+    // The Controls screen also reads it raw while capturing a button.
     GamepadMgr& pad = GamepadMgr::getInstance();
-    pad.setRawMode(_playing);
+    if (_controls) updateControls();
+    pad.setRawMode(_playing || (_controls && (_capture >= 0 || _captureRelease)));
     const uint16_t padButtons = _playing ? pad.buttons() : 0;
-    constexpr uint16_t SELECT_START = HidGamepad::PAD_SELECT | HidGamepad::PAD_START;
-    const bool padHome = (padButtons & HidGamepad::PAD_HOME) || (padButtons & SELECT_START) == SELECT_START;
+    const bool padHome = PadMapping::pauses(_padMap, padButtons);
     if (padHome && !_padHomeHeld) { _padHomeHeld = true; back(); return; }  // Home pauses
     _padHomeHeld = padHome;
     if (!_playing) return;
@@ -738,10 +745,8 @@ void AppPaperboy::update() {
     if (digitalRead(PIN_BUTTON_UP) == LOW) buttons |= 1;
     if (digitalRead(PIN_BUTTON_DOWN) == LOW) buttons |= 2;
 #endif
-    // Pad: Game Boy buttons in the same bit order; X and Y double as A and B.
-    buttons |= padButtons & 0xFF;
-    if (padButtons & HidGamepad::PAD_X) buttons |= HidGamepad::PAD_A;
-    if (padButtons & HidGamepad::PAD_Y) buttons |= HidGamepad::PAD_B;
+    // Pad: the Controls mapping, in the Game Boy / NES button bit order.
+    buttons |= PadMapping::gameButtons(_padMap, padButtons);
     _buttons = buttons;
     if (buttons) BatteryMgr::getInstance().resetIdleTimer();
     if (millis() - _lastStats >= 5000) {
@@ -870,6 +875,7 @@ void AppPaperboy::draw() {
     }
     if (!_redraw) return;
     _redraw = false;
+    if (_controls) { paintControls(); return; }
     if (_paused) { paintPause(); return; }
 #if INKADE_INKBOY_VIDEO
     if (_screen == SCREEN_SETTINGS) { paintSettings(); return; }

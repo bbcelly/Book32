@@ -5,6 +5,7 @@
 #include "InputMgr.h"
 #include "GameFrameTiming.h"
 #include "RomFormat.h"
+#include "PadMapping.h"
 #include <atomic>
 #include <vector>
 #include <FS.h>
@@ -85,6 +86,23 @@ private:
     const char* modeLabel() const { return _videoEnabled ? "Contrast" : "safe fallback"; }
     uint8_t whiteFill() const;
     bool _padHomeHeld = false;
+    // Gamepad mapping and its Controls screen. See AppPaperboyControls.cpp.
+    PadMapping::Map _padMap = PadMapping::DEFAULTS;
+    bool _controls = false, _controlsFull = false;
+    int _controlsCursor = -1;    // row chosen with keys / gamepad, -1 none
+    int _capture = -1;           // action waiting for a gamepad press, -1 none
+    bool _captureArmed = false;  // the pad was released since capture began
+    bool _captureRelease = false;  // pad stays raw until the captured press ends
+    String _controlsMessage;
+    void loadPadMap();
+    void savePadMap();
+    void openControls();
+    void paintControls();
+    void controlsTap(uint16_t x, uint16_t y);
+    void controlsKey(InputAction a);
+    void controlsBack();
+    void activateControlRow(int row);
+    void updateControls();
     unsigned _cursor = 0;        // library row chosen with keys / gamepad
     bool _cursorShown = false;   // shown after the first key press
     void keyAction(InputAction a);

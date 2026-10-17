@@ -1,5 +1,5 @@
 const ESPTOOL_MODULE_URL = 'https://unpkg.com/esptool-js@0.6.1/bundle.js';
-const RELEASE_VERSION = '1.4.2';
+const RELEASE_VERSION = '1.4.3';
 
 const profiles = {
   book32: {

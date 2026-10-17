@@ -5,6 +5,7 @@
 #if defined(BOARD_LILYGO_T5S3_PRO)
 #include <Wire.h>
 #include "LilygoControls.h"
+#include "StickyGrayImage.h"
 #endif
 #include "AppMgr.h"
 #include "GamepadMgr.h"
@@ -106,6 +107,37 @@ void InputMgr::pollSerialCommands() {
             Serial.printf("Serial: cover %s\n", BatteryMgr::getInstance().previewSleepCover() ? "drawn" : "unavailable");
             return;
         }
+#if defined(BOARD_LILYGO_T5S3_PRO)
+        else if (!strcmp(line, "gray ramp")) {
+            // The 16 native gray levels as labelled bands, 0 (top) to 15,
+            // for measuring the panel's tone response. Each band's ends stay
+            // white, a local reference that cancels uneven lighting.
+            _serialLine = "";
+            Book32Display& display = DisplayMgr::getInstance().getDisplay();
+            constexpr int LABEL_W = 48, LEVELS = StickyGrayImage::LILYGO_TONE_COUNT;
+            const int bandH = display.height() / LEVELS, w = display.width() - LABEL_W;
+            uint8_t* gray = static_cast<uint8_t*>(ps_malloc(w * bandH * LEVELS));
+            if (!gray) return;
+            display.setFullWindow();
+            display.fillScreen(GxEPD_WHITE);
+            display.setTextColor(GxEPD_BLACK);
+            display.setTextSize(2);
+            for (int i = 0; i < LEVELS; ++i) {
+                for (int row = 0; row < bandH; ++row) {
+                    uint8_t* line = gray + (i * bandH + row) * w;
+                    memset(line, 255, w);
+                    memset(line + w / 5, StickyGrayImage::LILYGO_TONES[i].lightness, w * 3 / 5);
+                }
+                display.setCursor(8, i * bandH + bandH / 2 - 7);
+                display.print(i);
+            }
+            display.setTextSize(1);
+            const bool drawn = display.drawGrayCover(gray, LABEL_W, 0, w, bandH * LEVELS);
+            free(gray);
+            Serial.printf("Serial: gray ramp %s\n", drawn ? "drawn" : "unavailable");
+            return;
+        }
+#endif
         else if (!strcmp(line, "sleep")) {
             _serialLine = "";
             Serial.println("Serial: sleep");

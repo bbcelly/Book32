@@ -31,6 +31,10 @@ public:
     // `gray` (8-bit, 0 black .. 255 white, w x h at rotated x, y; overwritten)
     // in 16 gray levels, as one full refresh.
     bool drawGrayCover(uint8_t* gray, int x, int y, int w, int h);
+    // Gray waveform: from the white the clear leaves, level L gets
+    // `blacks[L]` black passes, then `whites[L]` white ones (lighter steps
+    // than a black pass alone). Used by later grayscale refreshes.
+    void setGrayPulses(const uint8_t* blacks, const uint8_t* whites = nullptr);
 private:
     FASTEPD _panel;
     bool _ready = false, _partial = false, _gaming = false;

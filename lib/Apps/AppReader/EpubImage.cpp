@@ -760,6 +760,15 @@ bool EpubImageDecoder::dimensions(const uint8_t* data, size_t size, EpubImageInf
 bool EpubImageDecoder::decode(const uint8_t* data, size_t size, int maxWidth, int maxHeight, EpubBitmap& bitmap,
                               EpubImageQuality quality) {
     const bool cover = quality == EpubImageQuality::Cover;
+#if defined(BOARD_LILYGO_T5S3_PRO)
+    // The LILYGO shows covers in true gray, where sharpening (which restores
+    // edges for the dithered boards) only adds grain. Covers keep the chroma
+    // lift: red title text on a dark ground has nearly the same luma.
+    constexpr bool nativeGray = true;
+#else
+    constexpr bool nativeGray = false;
+#endif
+    const bool perceptual = cover;
     if (cover && jpegIsProgressive(data, size)) {
         Serial.println("EpubImage: progressive JPEG cover not decoded (known JPEGDEC overrun)");
         return false;
@@ -778,14 +787,14 @@ bool EpubImageDecoder::decode(const uint8_t* data, size_t size, int maxWidth, in
     memset(gray, 255, grayBytes);
 
     bool decoded = false;
-    if (isJpeg(data, size)) decoded = decodeJpeg(data, size, gray, targetWidth, targetHeight, source, cover);
-    else if (isPng(data, size)) decoded = decodePng(data, size, gray, targetWidth, targetHeight, source, cover);
+    if (isJpeg(data, size)) decoded = decodeJpeg(data, size, gray, targetWidth, targetHeight, source, perceptual);
+    else if (isPng(data, size)) decoded = decodePng(data, size, gray, targetWidth, targetHeight, source, perceptual);
 
     bool dithered = false;
     if (decoded) {
         autoLevels(gray, targetWidth, targetHeight);
         // Only images shrunk by more than 1.25x lose enough edge detail to need it.
-        if (source.width * 4 > targetWidth * 5) sharpen(gray, targetWidth, targetHeight);
+        if (source.width * 4 > targetWidth * 5 && !(cover && nativeGray)) sharpen(gray, targetWidth, targetHeight);
         dithered = cover ? ditherFloydSteinberg(gray, targetWidth, targetHeight, bitmap)
                          : ditherAtkinson(gray, targetWidth, targetHeight, bitmap);
     }

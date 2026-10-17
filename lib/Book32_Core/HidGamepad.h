@@ -12,7 +12,7 @@ enum : uint16_t {
     PAD_A = 0x0001, PAD_B = 0x0002, PAD_SELECT = 0x0004, PAD_START = 0x0008,
     PAD_RIGHT = 0x0010, PAD_LEFT = 0x0020, PAD_UP = 0x0040, PAD_DOWN = 0x0080,
     PAD_X = 0x0100, PAD_Y = 0x0200, PAD_L = 0x0400, PAD_R = 0x0800,
-    PAD_HOME = 0x1000,
+    PAD_HOME = 0x1000, PAD_L2 = 0x2000, PAD_R2 = 0x4000,
 };
 
 // One input value inside a report.
@@ -31,9 +31,10 @@ constexpr uint16_t USAGE_DPAD_UP = 0x90, USAGE_DPAD_DOWN = 0x91, USAGE_DPAD_RIGH
 
 // Gamepad button numbers (HID button page usages, 1-based) for each pad
 // button. Most Bluetooth LE gamepads in Android/"gamepad" mode, and Xbox
-// controllers, use: 1 A, 2 B, 4 X, 5 Y, 7 L, 8 R, 11 Select, 12 Start, 13 Home.
-struct ButtonMap { uint8_t a, b, x, y, l, r, select, start, home; };
-constexpr ButtonMap ANDROID_MAP = {1, 2, 4, 5, 7, 8, 11, 12, 13};
+// controllers, use: 1 A, 2 B, 4 X, 5 Y, 7 L, 8 R, 9 L2, 10 R2, 11 Select,
+// 12 Start, 13 Home.
+struct ButtonMap { uint8_t a, b, x, y, l, r, select, start, home, l2, r2; };
+constexpr ButtonMap ANDROID_MAP = {1, 2, 4, 5, 7, 8, 11, 12, 13, 9, 10};
 
 class Descriptor {
 public:
@@ -171,6 +172,8 @@ inline uint16_t decode(const Descriptor& d, uint8_t reportId, const uint8_t* dat
     if (has(map.select)) pad |= PAD_SELECT;
     if (has(map.start)) pad |= PAD_START;
     if (has(map.home)) pad |= PAD_HOME;
+    if (has(map.l2)) pad |= PAD_L2;
+    if (has(map.r2)) pad |= PAD_R2;
     if (rawButtons) *rawButtons = buttons;
     return pad;
 }

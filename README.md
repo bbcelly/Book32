@@ -95,6 +95,11 @@ interface, or copy them to the `/roms` folder on the MicroSD card. Games need a
 MicroSD card. They save automatically when you leave them, and you can also use
 save slots.
 
+To change which gamepad button does what, tap **Controls** in the Inkade
+library, tap an action, then press the button you want. Each action has one
+button; picking a button already in use swaps the two. Select + Start together
+always opens the pause menu.
+
 On the Sticky, Inkade's fast video is a port of
 [InkBoy](https://github.com/kuslota/InkBoy) by kuslota, with its settings and
 presets; see [Inkade on the Sticky](docs/inkade-sticky.md). E-paper games can

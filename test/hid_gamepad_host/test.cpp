@@ -50,6 +50,10 @@ int main() {
     uint8_t r3[] = {0x80, 0x80, 0x80, 0x80, 0x08, 0xD8, 0x14};
     assert(decode(d, 1, r3, sizeof(r3)) == (PAD_X | PAD_Y | PAD_L | PAD_R | PAD_SELECT | PAD_HOME));
 
+    // Buttons 9 and 10: the L2 and R2 triggers.
+    uint8_t triggers[] = {0x80, 0x80, 0x80, 0x80, 0x08, 0x00, 0x03};
+    assert(decode(d, 1, triggers, sizeof(triggers)) == (PAD_L2 | PAD_R2));
+
     // Report 2: consumer AC Home (0x223) and AC Back (0x224).
     uint8_t home[] = {0x23, 0x02};
     assert(decode(d, 2, home, sizeof(home)) == PAD_HOME);

@@ -16,6 +16,14 @@ int main(){
         assert(rowAt(10,ROW_Y+row*ROW_STEP+20)==-1);
         assert(rowAt(50,ROW_Y+row*ROW_STEP+ROW_H)==-1);
     }
+    // Controls: the header button, and every row of the Controls screen.
+    assert(controlsAt(CONTROLS_X+1,30) && !controlsAt(CONTROLS_X-1,30) && !controlsAt(CONTROLS_X+1,60));
+    for(int row=0;row<CONTROL_ROWS;row++){
+        assert(controlRowAt(50,CTRL_Y+row*CTRL_STEP+10,CONTROL_ROWS)==row);
+        assert(controlRowAt(50,CTRL_Y+row*CTRL_STEP+CTRL_H,CONTROL_ROWS)==-1);
+    }
+    assert(controlRowAt(50,CTRL_Y-1,CONTROL_ROWS)==-1 && controlRowAt(10,CTRL_Y+10,CONTROL_ROWS)==-1);
+    assert(CTRL_Y+CONTROL_ROWS*CTRL_STEP<=CTRL_HINT_Y);  // rows end above the hints
     GFXcanvas1 canvas(524,944);header(canvas,6,INK_SYSTEM_NES,7);
     card(canvas,0,"Pixel Quest - The Lost Cartridge","NES  /  RESUME SAVED GAME");
     card(canvas,1,"Star Runner","NES  /  TAP TO PLAY");

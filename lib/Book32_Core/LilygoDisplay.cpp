@@ -33,6 +33,7 @@ void LilygoDisplay::init(uint32_t, bool, uint16_t, bool) {
     _ready = _panel.initPanel(BB_PANEL_EPDIY_V7, 20000000) == BBEP_SUCCESS;
     if (_ready) _ready = _panel.setPanelSize(960, 540) == BBEP_SUCCESS;
     if (_ready) _ready = _panel.setMode(BB_MODE_1BPP) == BBEP_SUCCESS;
+    setGrayPulses(StickyGrayImage::LILYGO_BLACKS, StickyGrayImage::LILYGO_WHITES);
     if (_ready) clearScreen();
 }
 
@@ -51,6 +52,27 @@ void LilygoDisplay::refresh(bool partial) {
     checkResult(result);
 }
 
+namespace {
+// FastEPD keeps a pointer to the matrix: levels x passes, 1 darkens, 2 lightens.
+constexpr int MAX_GRAY_PASSES = 32;
+uint8_t grayMatrix[16 * MAX_GRAY_PASSES];
+int grayPasses = 0;
+}
+
+void LilygoDisplay::setGrayPulses(const uint8_t* blacks, const uint8_t* whites) {
+    int passes = 1;
+    for (int level = 0; level < 16; ++level)
+        passes = max(passes, blacks[level] + (whites ? whites[level] : 0));
+    passes = min(passes, MAX_GRAY_PASSES);
+    // Pulses come last, so every level finishes together.
+    for (int level = 0; level < 16; ++level) {
+        const int white = whites ? whites[level] : 0, start = passes - blacks[level] - white;
+        for (int pass = 0; pass < passes; ++pass)
+            grayMatrix[level * passes + pass] = pass < start ? 0 : pass < passes - white ? 1 : 2;
+    }
+    grayPasses = passes;
+}
+
 bool LilygoDisplay::drawGrayCover(uint8_t* gray, int x, int y, int w, int h) {
     using namespace LilygoLayout;
     if (!_ready || !getBuffer() || !_panel.currentBuffer() || _gaming || !gray) return false;
@@ -60,6 +82,10 @@ bool LilygoDisplay::drawGrayCover(uint8_t* gray, int x, int y, int w, int h) {
     free(errors);
     stopVideo();
     if (_panel.setMode(BB_MODE_4BPP) != BBEP_SUCCESS) return false;
+    if (grayPasses && _panel.setCustomMatrix(grayMatrix, 16 * grayPasses) != BBEP_SUCCESS) {
+        _panel.setMode(BB_MODE_1BPP);  // the caller falls back to a dithered cover
+        return false;
+    }
     // 4-bit native-landscape buffer, two pixels per byte (high nibble first),
     // 15 white: the canvas in black and white, then the cover in gray.
     uint8_t* panel = _panel.currentBuffer();
@@ -73,13 +99,15 @@ bool LilygoDisplay::drawGrayCover(uint8_t* gray, int x, int y, int w, int h) {
     for (int ry = 0; ry < CANVAS_H; ++ry)
         for (int rx = 0; rx < CANVAS_W; ++rx)
             if (!(canvas[ry * PITCH + rx / 8] & (0x80 >> (rx & 7)))) put(rx + INSET, ry + INSET, 0);
+    // Bounds are the rotated (portrait) size: GFX's own WIDTH and HEIGHT,
+    // which shadow LilygoLayout's here, are the raw landscape canvas.
     const uint8_t rotation = getRotation();
     for (int row = 0; row < h; ++row) {
         const int py = y + row;
-        if (py < 0 || py >= HEIGHT) continue;
+        if (py < 0 || py >= height()) continue;
         for (int col = 0; col < w; ++col) {
             const int px = x + col;
-            if (px < 0 || px >= WIDTH) continue;
+            if (px < 0 || px >= width()) continue;
             // GFXcanvas1's rotation (1 or 3) to the raw landscape canvas.
             const int rx = rotation == 1 ? CANVAS_W - 1 - py : py;
             const int ry = rotation == 1 ? px : CANVAS_H - 1 - px;

@@ -4,6 +4,7 @@
 #include <string.h>
 #include "Config.h"
 #include "RomFormat.h"
+#include "PadMapping.h"
 namespace InkBoyLibraryUi {
 #if INKADE_INKBOY_VIDEO
 // 480x800 portrait.
@@ -14,12 +15,18 @@ constexpr unsigned TITLE_CHARS=28;
 constexpr int CARD_ART_DY=24, CARD_LINE1_DY=15, CARD_LINE2_DY=38, NAV_SMALL_DY=24, NAV_BIG_DY=20;
 // "Display >" opens Inkade's display settings; taps right of SETTINGS_X.
 constexpr int SETTINGS_X=330;
+// "Controls >" opens the gamepad mapping.
+constexpr int CONTROLS_X=190, CONTROLS_W=130;
+// Controls screen rows.
+constexpr int CTRL_Y=150, CTRL_H=50, CTRL_STEP=56, CTRL_HINT_Y=722;
 #else
 constexpr int CONTENT_W=484, ROWS=5, ROW_Y=264, ROW_H=100, ROW_STEP=106;
 constexpr int TAB_Y=174,TAB_H=58,NAV_Y=818,NAV_H=58, NAV_W=144, NAV_GAP=26;
 constexpr int PAGE_Y=894, STATUS_Y=920, COUNT_Y=246, KICKER_X=352;
 constexpr unsigned TITLE_CHARS=32;
 constexpr int CARD_ART_DY=23, CARD_LINE1_DY=17, CARD_LINE2_DY=40, NAV_SMALL_DY=22, NAV_BIG_DY=20;
+constexpr int CONTROLS_X=KICKER_X, CONTROLS_W=CONTENT_W+20-KICKER_X;
+constexpr int CTRL_Y=170, CTRL_H=58, CTRL_STEP=66, CTRL_HINT_Y=850;
 #endif
 constexpr int LEFT=20, RIGHT=LEFT+CONTENT_W;
 inline int navX(int index){return LEFT+index*(NAV_W+NAV_GAP);}
@@ -37,6 +44,13 @@ inline InkSystem tabAt(uint8_t mask,int x,int y){
     for(int i=INK_SYSTEM_GB;i<=INK_SYSTEM_NES;i++)if(mask&(1<<i)){if(x>=left&&x<left+w)return (InkSystem)i;left+=w+8;}
     return INK_SYSTEM_NONE;
 }
+inline bool controlsAt(int x,int y){return y<60&&x>=CONTROLS_X&&x<CONTROLS_X+CONTROLS_W;}
+// Controls screen row under a tap, or -1.
+inline int controlRowAt(int x,int y,int rows){
+    if(x<LEFT||x>=RIGHT||y<CTRL_Y)return -1;
+    int r=(y-CTRL_Y)/CTRL_STEP;
+    return r<rows&&(y-CTRL_Y)%CTRL_STEP<CTRL_H?r:-1;
+}
 inline int rowAt(int x,int y){
     if(x<LEFT||x>=RIGHT||y<ROW_Y)return -1;
     int r=(y-ROW_Y)/ROW_STEP;
@@ -52,9 +66,8 @@ inline void header(Adafruit_GFX& d,uint8_t mask,InkSystem selected,unsigned coun
     d.fillScreen(1);text(d,"< InkDeck",LEFT,26);
 #if defined(BOARD_SEEED_STICKY)
     d.drawRoundRect(SETTINGS_X,12,RIGHT-SETTINGS_X,40,8,0);center(d,"Display >",SETTINGS_X,24,RIGHT-SETTINGS_X);
-#else
-    text(d,"GAME LIBRARY",KICKER_X,30,1);
 #endif
+    d.drawRoundRect(CONTROLS_X,12,CONTROLS_W,40,8,0);center(d,"Controls >",CONTROLS_X,24,CONTROLS_W);
     text(d,"Inkade",LEFT,91,4);text(d,"Your games, one place.",LEFT+2,138,2);
     int left=LEFT,w=tabWidth(mask);char label[24];
     for(int i=INK_SYSTEM_GB;i<=INK_SYSTEM_NES;i++)if(mask&(1<<i)){
@@ -85,6 +98,38 @@ inline void footer(Adafruit_GFX& d,unsigned page,unsigned pages,const char* mess
     center(d,page+1<pages?"Next >":"Last",navX(2),NAV_Y+NAV_SMALL_DY,NAV_W,1);
     char pageLabel[40];snprintf(pageLabel,sizeof(pageLabel),"PAGE %u / %u",page+1,pages?pages:1);center(d,pageLabel,LEFT,PAGE_Y,CONTENT_W,1);
     char status[80];snprintf(status,sizeof(status),"%.78s",message);center(d,status,LEFT,STATUS_Y,CONTENT_W,1);
+    d.setTextWrap(true);
+}
+// Controls screen: one row per game action, then "Reset to defaults".
+// `cursor` is the key/gamepad selection (-1 none), `capture` the action
+// waiting for a gamepad press (-1 none).
+constexpr int CONTROL_ROWS=PadMapping::ACTION_COUNT+1;
+inline void controls(Adafruit_GFX& d,const PadMapping::Map& map,int cursor,int capture,const char* message){
+    d.fillScreen(1);text(d,"< Inkade",LEFT,26);
+    text(d,"Controls",LEFT,CTRL_Y-86,4);text(d,"Gamepad buttons in games",LEFT+2,CTRL_Y-40,2);
+    for(int row=0;row<CONTROL_ROWS;row++){
+        const int y=CTRL_Y+row*CTRL_STEP,textY=y+(CTRL_H-16)/2;
+        if(row==PadMapping::ACTION_COUNT){
+            d.drawRoundRect(LEFT,y,CONTENT_W,CTRL_H,10,0);center(d,"Reset to defaults",LEFT,textY,CONTENT_W);
+        }else if(row==capture){
+            d.fillRoundRect(LEFT,y,CONTENT_W,CTRL_H,10,0);text(d,PadMapping::actionName(row),LEFT+14,textY,2,1);
+            const char* prompt="Press a gamepad button";text(d,prompt,RIGHT-14-int(strlen(prompt))*6,textY+4,1,1);
+        }else{
+            d.drawRoundRect(LEFT,y,CONTENT_W,CTRL_H,10,0);
+            const char* name=PadMapping::actionName(row);text(d,name,LEFT+14,textY);
+            char value[64];PadMapping::describe(map.masks[row],value,sizeof(value));
+            // Size 2 when it fits beside the name, else the smaller size.
+            const int room=CONTENT_W-28-int(strlen(name))*12-16;
+            const int size=int(strlen(value))*12<=room?2:1;
+            text(d,value,RIGHT-14-int(strlen(value))*6*size,size==2?textY:textY+4,size);
+        }
+        if(row==cursor&&row!=capture)
+            for(int inset=1;inset<=3;inset++)d.drawRoundRect(LEFT+inset,y+inset,CONTENT_W-2*inset,CTRL_H-2*inset,9,0);
+    }
+    text(d,"Tap an action, then press the gamepad button for it.",LEFT,CTRL_HINT_Y,1);
+    text(d,"A button already in use swaps with that action.",LEFT,CTRL_HINT_Y+16,1);
+    text(d,"Select + Start together always opens the pause menu.",LEFT,CTRL_HINT_Y+32,1);
+    if(message&&*message){char status[80];snprintf(status,sizeof(status),"%.78s",message);text(d,status,LEFT,CTRL_HINT_Y+56,1);}
     d.setTextWrap(true);
 }
 }
