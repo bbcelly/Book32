@@ -163,8 +163,10 @@ function bytesEqual(left, right) {
 
 // Linux blocks serial ports in ways Windows and macOS do not.
 const LINUX_PORT_HELP = 'On Linux: add yourself to the dialout group (sudo usermod -aG dialout $USER, then log out and back in); '
-  + 'with Snap Chromium also run sudo snap connect chromium:raw-usb; and close any serial monitor using the port.';
-const LINUX_SYNC_HELP = 'On Linux, ModemManager can grab the port while flashing: stop it (sudo systemctl stop ModemManager) and try again.';
+  + 'with Snap Chromium also run sudo snap connect chromium:raw-usb; and close any serial monitor using the port. '
+  + 'See "Flashing from Linux?" below.';
+const LINUX_SYNC_HELP = 'On Linux, ModemManager can grab the port while flashing: stop it (sudo systemctl stop ModemManager) and try again. '
+  + 'See "Flashing from Linux?" below.';
 
 function friendlyError(error) {
   const message = error?.message || String(error);
@@ -303,5 +305,6 @@ deviceCards.forEach((card) => {
 flashButton.addEventListener('click', flashSelectedDevice);
 
 setBrowserSupport();
+if (IS_LINUX) document.querySelector('#linux-guide').open = true;
 const requestedHardware = new URLSearchParams(window.location.search).get('hardware');
 if (profiles[requestedHardware]) selectDevice(requestedHardware);

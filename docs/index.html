@@ -7,7 +7,7 @@
   <title>Install InkDeck</title>
   <meta name="description" content="Install InkDeck on Book32, Seeed Studio Sticky, or LILYGO T5 S3 Pro H752-01 directly from Chrome or Edge.">
   <link rel="icon" href="assets/book32-reader.png">
-  <link rel="stylesheet" href="installer.css?v=1.4.3">
+  <link rel="stylesheet" href="installer.css?v=1.4.3-linux-guide">
 </head>
 <body>
   <header class="site-header">
@@ -160,6 +160,40 @@
       <summary>Device does not appear in the serial-port list?</summary>
       <p>Use a data-capable USB cable. If needed, hold BOOT, tap RESET, release BOOT, and then click Flash again.</p>
     </details>
+
+    <details id="linux-guide">
+      <summary>Flashing from Linux?</summary>
+      <p>Linux needs a little setup before a browser can use the device's USB serial port. Do these once:</p>
+      <ol>
+        <li>
+          <strong>Use Chrome, Chromium, or Edge.</strong> Firefox does not support Web Serial.
+          Snap Chromium (the default on Ubuntu) also needs USB access:
+          <code>sudo snap connect chromium:raw-usb</code>.
+          Flatpak browsers need device access too, for example
+          <code>flatpak override --user --device=all com.google.Chrome</code>,
+          or install the browser's .deb or .rpm instead.
+        </li>
+        <li>
+          <strong>Give your account access to serial ports.</strong> Run
+          <code>sudo usermod -aG dialout $USER</code>
+          (on Arch Linux the group is <code>uucp</code>), then log out and back in, or restart.
+          Running <code>groups</code> should now list <code>dialout</code>.
+        </li>
+        <li>
+          <strong>Stop ModemManager while flashing.</strong> It can grab new USB serial devices and break the connection:
+          <code>sudo systemctl stop ModemManager</code>.
+          It starts again after a restart.
+        </li>
+        <li>
+          <strong>Close anything else using the port</strong>, such as a serial monitor, the Arduino IDE, or PlatformIO.
+        </li>
+        <li>
+          <strong>Check that Linux sees the device.</strong> With it plugged in,
+          <code>ls /dev/ttyACM* /dev/ttyUSB*</code> should list a port. If nothing shows up, try another
+          data-capable cable or put the device in download mode (hold BOOT, tap RESET, release BOOT).
+        </li>
+      </ol>
+    </details>
   </main>
 
   <footer>
@@ -168,6 +202,6 @@
     <a href="https://github.com/rolohaun/Book32/issues">Report a problem</a>
   </footer>
 
-  <script type="module" src="installer.js?v=1.4.3-linux"></script>
+  <script type="module" src="installer.js?v=1.4.3-linux-guide"></script>
 </body>
 </html>
