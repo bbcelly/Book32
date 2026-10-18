@@ -693,6 +693,7 @@ void WebMgr::setupEndpoints() {
                 doc["showReadingPercentage"] = savedDoc["showReadingPercentage"] | true;
                 doc["mangaRightToLeft"] = savedDoc["mangaRightToLeft"] | false;
                 doc["grayPages"] = savedDoc["grayPages"] | true;
+                doc["grayZoom"] = savedDoc["grayZoom"] | false;
             } else {
                 doc["refreshFrequency"] = READER_FULL_REFRESH_INTERVAL_DEFAULT;
                 doc["fontSize"] = READER_FONT_SIZE_DEFAULT;
@@ -739,6 +740,7 @@ void WebMgr::setupEndpoints() {
                         doc["showReadingPercentage"] = savedDoc["showReadingPercentage"] | true;
                         doc["mangaRightToLeft"] = savedDoc["mangaRightToLeft"] | false;
                         doc["grayPages"] = savedDoc["grayPages"] | true;
+                        doc["grayZoom"] = savedDoc["grayZoom"] | false;
                     }
                     existing.close();
                 }
@@ -774,6 +776,9 @@ void WebMgr::setupEndpoints() {
             }
             if (json.containsKey("grayPages")) {
                 doc["grayPages"] = json["grayPages"].as<bool>();
+            }
+            if (json.containsKey("grayZoom")) {
+                doc["grayZoom"] = json["grayZoom"].as<bool>();
             }
 
             // Save to EbookFS (primary storage - persists through OTA)

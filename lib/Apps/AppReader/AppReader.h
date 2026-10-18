@@ -61,7 +61,9 @@ private:
     // Library
     std::vector<BookEntry> _books;
     int _selectedBookIndex;
-    int _scrollOffset; // For list scrolling
+    int _scrollOffset; // First book shown: the library shows a page of books at a time
+    int _libraryPageSize = 5;  // Books per library page (set when drawing)
+    void showLibraryPage(int page);
     bool _booksScanned;
     bool _libraryFirstDraw;
     bool _librarySelectionOnlyRedraw;
@@ -157,7 +159,8 @@ private:
     int _pageGrayW = 0, _pageGrayH = 0;
     PageView _pageView;
     bool _rightToLeft = false;     // Manga order: next is on the left
-    bool _grayPages = true;        // LILYGO: finished page views in 16 grays
+    bool _grayPages = true;        // LILYGO: whole pages in 16 grays
+    bool _grayZoom = false;        // LILYGO: zoomed views in 16 grays too (full refresh each)
     int loadPageProgress(const String& path);
 #if BOOK32_HAS_PAGE_BOOKS
     bool openPageBook(const String& path, bool restoreProgress);

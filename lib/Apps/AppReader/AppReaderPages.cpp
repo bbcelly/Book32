@@ -538,10 +538,10 @@ void AppReader::drawPageBook(bool preview) {
     }
 
 #if defined(BOARD_LILYGO_T5S3_PRO)
-    // Whole pages in 16 grays (one full refresh). Zoomed views stay dithered
+    // Whole pages in 16 grays (one full refresh). Zoomed views are dithered
     // partial refreshes, as on the Sticky, so stepping through a zoomed page
-    // never flashes.
-    if (_grayPages && !preview && !_pageView.zoomed()) {
+    // never flashes, unless the reader chose grayscale for those too.
+    if (_grayPages && !preview && (!_pageView.zoomed() || _grayZoom)) {
         Box box = footerBox(display, footer);
         display.setFullWindow();
         display.fillScreen(GxEPD_WHITE);

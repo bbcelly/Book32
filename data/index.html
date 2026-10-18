@@ -71,6 +71,13 @@
                     </fieldset>
                     <div class="inline-setting page-books-only hidden"><div><label for="manga-rtl">Manga page order</label><p>PDFs and comics: turn pages right to left, as in Japanese manga.</p></div><input type="checkbox" class="switch" id="manga-rtl" aria-label="Right-to-left page order"></div>
                     <div class="inline-setting lilygo-gray-only hidden"><div><label for="gray-pages">Grayscale pages</label><p>PDFs and comics in 16 shades of gray. Each page then uses a full refresh; off is faster but dithered.</p></div><input type="checkbox" class="switch" id="gray-pages" aria-label="Grayscale pages" checked></div>
+                    <fieldset class="choice-fieldset lilygo-gray-only hidden">
+                        <legend>Zoomed view (PDFs and comics)</legend>
+                        <div class="choice-grid two-up">
+                            <label class="choice-card" for="zoom-fast"><input type="radio" id="zoom-fast" name="zoom-style" value="fast" checked><span class="choice-check">✓</span><strong>Fast</strong><small>Black and white, no flash. Stepping through a zoomed page takes about half a second.</small></label>
+                            <label class="choice-card" for="zoom-gray"><input type="radio" id="zoom-gray" name="zoom-style" value="gray"><span class="choice-check">✓</span><strong>Grayscale</strong><small>16 shades of gray. Each step is a full refresh of about two seconds.</small></label>
+                        </div>
+                    </fieldset>
                     <div class="inline-setting"><div><label for="refresh-rate">Full refresh interval</label><p>Clear the display completely after this many page turns.</p></div><div class="number-control"><input type="number" id="refresh-rate" min="1" max="100" value="15"><span>pages</span></div></div>
                     <div class="action-row"><button class="btn primary" onclick="saveReaderSettings()">Save reader settings</button><div id="reader-settings-status" class="status-msg" role="status"></div></div>
                 </article>

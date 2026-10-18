@@ -334,6 +334,7 @@ void AppReader::loadSettings() {
             _showReadingPercentage = doc["showReadingPercentage"] | true;
             _rightToLeft = doc["mangaRightToLeft"] | false;
             _grayPages = doc["grayPages"] | true;
+            _grayZoom = doc["grayZoom"] | false;
         }
         file.close();
     }
@@ -771,6 +772,12 @@ void AppReader::handleTouch(uint16_t x, uint16_t y) {
         AppMgr::getInstance().switchTo(0);
         return;
     }
+    if (y >= SCREEN_HEIGHT - 48) {  // The footer: Prev and Next
+        const int page = _scrollOffset / max(1, _libraryPageSize);
+        if (x < SCREEN_WIDTH / 3) showLibraryPage(page - 1);
+        else if (x >= (SCREEN_WIDTH * 2) / 3) showLibraryPage(page + 1);
+        return;
+    }
     if (y < HEADER_H + BACK_ITEM_HEIGHT || y >= SCREEN_HEIGHT - FOOTER_H) return;
 
     int visibleRow = (static_cast<int>(y) - HEADER_H - BACK_ITEM_HEIGHT) / ITEM_HEIGHT;
@@ -780,6 +787,18 @@ void AppReader::handleTouch(uint16_t x, uint16_t y) {
         _selectedBookIndex = bookIndex;
         openBook(_books[bookIndex].path);
     }
+}
+
+void AppReader::showLibraryPage(int page) {
+    const int pageSize = max(1, _libraryPageSize);
+    const int pageCount = max(1, (static_cast<int>(_books.size()) + pageSize - 1) / pageSize);
+    if (page < 0 || page >= pageCount || _books.empty()) return;
+    SoundMgr::getInstance().beep();
+    _previousBookIndex = _selectedBookIndex;
+    _selectedBookIndex = page * pageSize;  // The selection moves to the page's first book
+    _scrollOffset = page * pageSize;
+    _librarySelectionOnlyRedraw = false;
+    _needsRedraw = true;
 }
 
 void AppReader::calculateTotalPages() {
@@ -1215,15 +1234,13 @@ void AppReader::drawLibrary() {
     const int ITEM_PADDING = 24;
     const int visibleBookCount = max(1, (display.height() - HEADER_H - BACK_ITEM_HEIGHT - 70) / ITEM_HEIGHT);
 
+    // The library shows a page of books at a time: the page holding the
+    // selection, or the one chosen with the Prev and Next buttons.
+    _libraryPageSize = visibleBookCount;
+    const int pageCount = max(1, (static_cast<int>(_books.size()) + visibleBookCount - 1) / visibleBookCount);
     int previousScrollOffset = _scrollOffset;
-    if (_selectedBookIndex >= 0) {
-        if (_selectedBookIndex < _scrollOffset) _scrollOffset = _selectedBookIndex;
-        if (_selectedBookIndex >= _scrollOffset + visibleBookCount) {
-            _scrollOffset = _selectedBookIndex - visibleBookCount + 1;
-        }
-    }
-    int maximumScroll = max(0, static_cast<int>(_books.size()) - visibleBookCount);
-    _scrollOffset = constrain(_scrollOffset, 0, maximumScroll);
+    if (_selectedBookIndex >= 0) _scrollOffset = (_selectedBookIndex / visibleBookCount) * visibleBookCount;
+    _scrollOffset = constrain(_scrollOffset, 0, (pageCount - 1) * visibleBookCount);
     if (_scrollOffset != previousScrollOffset) _librarySelectionOnlyRedraw = false;
 
     int lastVisibleBook = min(static_cast<int>(_books.size()), _scrollOffset + visibleBookCount);
@@ -1362,11 +1379,34 @@ void AppReader::drawLibrary() {
         }
         display.drawFastHLine(20, display.height() - 42, display.width() - 40, GxEPD_BLACK);
 #if BOOK32_HAS_TOUCH
-        fontMgr.drawText(display, "Tap a book to open", 22, display.height() - 18, FONT_SIZE_SMALL, GxEPD_BLACK);
+        if (pageCount > 1) {
+            // Prev and Next buttons (handleTouch: the footer's outer thirds).
+            const int page = _scrollOffset / visibleBookCount;
+            const int buttonW = 112, buttonH = 32, buttonY = display.height() - 38;
+            auto button = [&](int x, const char* label, bool enabled) {
+                if (!enabled) return;
+                display.drawRoundRect(x, buttonY, buttonW, buttonH, 8, GxEPD_BLACK);
+                display.drawRoundRect(x + 1, buttonY + 1, buttonW - 2, buttonH - 2, 7, GxEPD_BLACK);
+                int16_t bx, by;
+                uint16_t bw, bh;
+                display.setFont(&FreeSans9pt7b);
+                display.getTextBounds(label, 0, 0, &bx, &by, &bw, &bh);
+                drawTextWithFont(display, label, x + (buttonW - bw) / 2 - bx, buttonY + (buttonH - bh) / 2 - by,
+                                 &FreeSans9pt7b, GxEPD_BLACK);
+            };
+            button(20, "<  Prev", page > 0);
+            button(display.width() - 20 - buttonW, "Next  >", page < pageCount - 1);
+            char pageText[24];
+            snprintf(pageText, sizeof(pageText), "Page %d of %d", page + 1, pageCount);
+            fontMgr.drawTextCentered(display, pageText, display.height() - 18, FONT_SIZE_SMALL, GxEPD_BLACK);
+        } else {
+            fontMgr.drawText(display, "Tap a book to open", 22, display.height() - 18, FONT_SIZE_SMALL, GxEPD_BLACK);
+            fontMgr.drawTextRight(display, pageStr, display.width() - 20, display.height() - 18, FONT_SIZE_SMALL, GxEPD_BLACK);
+        }
 #else
         fontMgr.drawText(display, "Next: Move  |  Hold: Open", 22, display.height() - 18, FONT_SIZE_SMALL, GxEPD_BLACK);
-#endif
         fontMgr.drawTextRight(display, pageStr, display.width() - 20, display.height() - 18, FONT_SIZE_SMALL, GxEPD_BLACK);
+#endif
 
     } while (display.nextPage());
 }

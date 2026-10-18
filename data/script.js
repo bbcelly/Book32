@@ -562,6 +562,7 @@ function getReaderSettings() {
             document.getElementById('show-reading-percentage').checked = data.showReadingPercentage !== false;
             document.getElementById('manga-rtl').checked = data.mangaRightToLeft === true;
             document.getElementById('gray-pages').checked = data.grayPages !== false;
+            setRadioValue('zoom-style', data.grayZoom === true ? 'gray' : 'fast');
         })
         .catch(error => console.error('Error loading reader settings:', error));
 }
@@ -588,7 +589,8 @@ function saveReaderSettings() {
             showPageNumber: showPageNumber,
             showReadingPercentage: showReadingPercentage,
             mangaRightToLeft: document.getElementById('manga-rtl').checked,
-            grayPages: document.getElementById('gray-pages').checked
+            grayPages: document.getElementById('gray-pages').checked,
+            grayZoom: getRadioValue('zoom-style', 'fast') === 'gray'
         }),
     })
         .then(response => response.json())
