@@ -109,7 +109,9 @@ pages are plain JPEG or PNG.
 - Zoomed in, tapping the right side (or the next button) moves one screen
   along the page in reading order, then down a row, then on to the next page.
 - **Manga page order** in the web interface's reader settings turns pages
-  right to left. On the LILYGO, pages show in 16 grays (**Grayscale pages**).
+  right to left. On the LILYGO, pages show in 16 grays (**Grayscale pages**),
+  and **Zoomed view** chooses between Fast (black and white, no flash) and
+  Grayscale (16 grays, a full refresh per step) for zoomed pages.
 
 ## Games (Inkade)
 
