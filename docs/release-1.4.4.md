@@ -28,6 +28,9 @@ if its pages are plain JPEG or PNG.
 - **LILYGO:** whole pages in 16 grays (**Grayscale pages**), and a choice for
   zoomed views: **Fast** (black and white, no flash; the default) or
   **Grayscale** (16 grays, a full refresh per step).
+- These options are in the web interface's reader settings and on the device
+  under **Settings > Reading display**. Saving that page on the device now
+  keeps reader settings made in the web interface.
 - Covers in the library and on the sleep screen come from the first page.
 
 ## New: library pages
