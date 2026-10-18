@@ -193,6 +193,34 @@ private:
     int _dragStartX = 0, _dragStartY = 0, _dragLastX = 0, _dragLastY = 0;
     float _pinchStartDistance = 1, _pinchStartZoom = 1, _pinchPageX = 0, _pinchPageY = 0;
     unsigned long _gestureEndedAt = 0, _gestureZeroSince = 0, _lastPreviewAt = 0;
+    bool _gesturePinched = false;  // After a pinch, the last finger up doesn't drag
+#if defined(BOARD_SEEED_STICKY)
+    // Live frames while fingers move (StickyDisplay::liveFrame)
+    // Frames are drawn on the other core while this one sends the last one.
+    void renderLiveView(uint8_t* out, const PageView& view);
+    void prepareLiveSources();
+    void startLiveRender();
+    void finishLiveView();
+    static void liveWorker(void* self);
+    TaskHandle_t _liveTask = nullptr;
+    SemaphoreHandle_t _liveRequest = nullptr;
+    uint8_t* _liveBuffer[2] = {nullptr, nullptr};
+    PageView _liveJobView;
+    int _liveJobBuffer = 0;
+    int _liveShown = 1;                   // The buffer last sent to the panel
+    volatile bool _liveRendering = false;
+    volatile int _liveReady = -1;         // A drawn buffer waiting to be sent
+    // The page pictures turned sideways (column after column): the panel's
+    // rows are the portrait page's columns, so live frames read them in order.
+    uint8_t* _pageFitT = nullptr;
+    uint8_t* _pageGrayT = nullptr;
+    int16_t* _liveCols = nullptr;
+    int16_t* _liveRows = nullptr;
+    unsigned _liveFrames = 0;
+    unsigned long _liveRenderUs = 0;
+    unsigned long _liveLastFrameAt = 0;
+    unsigned long _liveStartedAt = 0;
+#endif
 #endif
 };
 

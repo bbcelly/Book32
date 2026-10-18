@@ -50,6 +50,19 @@ public:
     // The same from 8-bit gray (0 black .. 255 white), which is overwritten.
     bool drawGrayCover(uint8_t* gray, int x, int y, int w, int h);
 
+    // Live frames while a gesture moves a page (pinch to zoom, dragging):
+    // the canvas, driven with Inkade's one-frame waveform over the whole
+    // panel. Begin right after a normal refresh; each liveFrame() starts one
+    // scan toward the canvas and returns while the panel drives, so the next
+    // frame can be drawn meanwhile. liveEnd() finishes the drive and hands
+    // back to normal refreshes.
+    bool liveBegin();
+    // `frame` is in the canvas layout (800 x 480, 1 = white); null is the canvas.
+    bool liveFrame(const uint8_t* frame = nullptr);
+    unsigned livePending() const { return _livePending; }
+    void liveEnd();
+    bool liveActive() const { return _live; }
+
 private:
     BBEPAPER _panel;
     uint8_t* _previousBuffer = nullptr;
@@ -75,6 +88,16 @@ private:
     void videoPowerOff() override;
 
     void flush();
+
+    // Live frames: InkBoy's per-pixel pulse counters at panel size.
+    uint32_t* _liveTarget = nullptr;  // What the panel is being driven to
+    uint32_t* _liveCount = nullptr;   // 4 bit planes of pulses still to give
+    uint8_t* _liveOld = nullptr;
+    uint8_t* _liveNew = nullptr;
+    bool _live = false, _liveBusy = false;
+    unsigned _livePending = 0;
+    uint32_t _liveWaitUs = 0, _liveCalcUs = 0, _liveSendUs = 0, _liveScans = 0;  // Timing log
+    void liveWindow();
 };
 
 #endif

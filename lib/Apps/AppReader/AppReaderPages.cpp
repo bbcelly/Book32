@@ -91,6 +91,11 @@ void AppReader::closePageBook() {
 }
 
 void AppReader::freePage() {
+#if defined(BOARD_SEEED_STICKY)
+    free(_pageFitT);
+    free(_pageGrayT);
+    _pageFitT = _pageGrayT = nullptr;
+#endif
     free(_pageData);
     free(_pageFit);
     free(_pageGray);
@@ -211,18 +216,25 @@ void AppReader::pollPageGestures() {
         if (now - _gestureZeroSince < RELEASE_MS) return;  // A missed report, not a release
         _gestureActive = false;
         _gestureEndedAt = now;
+#if defined(BOARD_SEEED_STICKY)
+        Book32Display& display = DisplayMgr::getInstance().getDisplay();
+        if (display.liveActive()) {
+            finishLiveView();
+            // The rate while fingers moved: from the first frame to the last.
+            const unsigned long moving = _liveLastFrameAt - _liveStartedAt;
+            Serial.printf("AppReader: %u live frames in %lums (%.1f per second), drawing %lu us each\n",
+                          _liveFrames, moving, moving ? (_liveFrames - 1) * 1000.0f / moving : 0.0f,
+                          _liveFrames ? _liveRenderUs / _liveFrames : 0);
+        }
+#endif
         const int dx = _dragLastX - _dragStartX, dy = _dragLastY - _dragStartY;
         if (_gestureFingers == 1 && _gestureMoved && !_pageView.zoomed() &&
             abs(dx) >= SWIPE_MIN && abs(dx) * 2 > abs(dy) * 3) {
             turnPageBook((dx < 0) != _rightToLeft, false);
             return;
         }
-#if defined(BOARD_LILYGO_T5S3_PRO)
-        const bool grayFinish = _grayPages && _gesturePreviewed;  // Previews are dithered
-#else
-        const bool grayFinish = false;
-#endif
-        if (_gestureViewChanged || grayFinish) _needsRedraw = true;
+        // Previews are quick approximations: finish with the real view.
+        if (_gestureViewChanged || _gesturePreviewed) _needsRedraw = true;
         return;
     }
     _gestureZeroSince = 0;
@@ -233,7 +245,7 @@ void AppReader::pollPageGestures() {
     if (!_gestureActive) {
         _gestureActive = true;
         _gestureMoved = _gestureConsumed = _gestureViewChanged = _gesturePreviewed = false;
-        _pinchActive = false;
+        _pinchActive = _gesturePinched = false;
         _gestureFingers = count;
         _dragStartX = _dragLastX = points[0].x;
         _dragStartY = _dragLastY = points[0].y;
@@ -245,7 +257,7 @@ void AppReader::pollPageGestures() {
         const float mx = (points[0].x + points[1].x) / 2.0f, my = (points[0].y + points[1].y) / 2.0f;
         const float distance = hypotf(float(points[0].x) - points[1].x, float(points[0].y) - points[1].y);
         if (!_pinchActive) {
-            _pinchActive = true;
+            _pinchActive = _gesturePinched = true;
             _gestureConsumed = true;
             _pinchStartDistance = max(distance, 20.0f);
             _pinchStartZoom = _pageView.zoom;
@@ -263,10 +275,13 @@ void AppReader::pollPageGestures() {
         }
     } else {
         const int x = points[0].x, y = points[0].y;
-        if (_pinchActive) {  // Back to one finger: drag on from here
-            _pinchActive = false;
+        // Fingers rarely lift together: once pinched, the last finger up
+        // leaves the view where the pinch put it.
+        _pinchActive = false;
+        if (_gesturePinched) {
             _dragLastX = x;
             _dragLastY = y;
+            return;
         }
         if (!_gestureMoved && (abs(x - _dragStartX) > DRAG_THRESHOLD || abs(y - _dragStartY) > DRAG_THRESHOLD)) {
             _gestureMoved = true;
@@ -280,11 +295,175 @@ void AppReader::pollPageGestures() {
         _dragLastY = y;
     }
 
+#if defined(BOARD_SEEED_STICKY)
+    // As fast as the panel goes: a new frame whenever the view moved, and
+    // otherwise the remaining pulses of the last one.
+    Book32Display& display = DisplayMgr::getInstance().getDisplay();
+    startLiveRender();
+    if (_liveReady >= 0) {  // Send the frame the other core drew
+        _liveShown = _liveReady;
+        _liveReady = -1;
+        startLiveRender();  // Draw the next one meanwhile
+        display.liveFrame(_liveBuffer[_liveShown]);
+        _liveFrames++;
+        _liveLastFrameAt = millis();
+    } else if (!_liveRendering && display.liveActive() && display.livePending()) {
+        display.liveFrame(_liveBuffer[_liveShown]);  // Its remaining pulses
+    }
+#else
     if (_viewChangedSincePreview && now - _lastPreviewAt >= PREVIEW_INTERVAL_MS) {
         drawPageBook(true);
         _lastPreviewAt = millis();
     }
+#endif
 }
+
+#if defined(BOARD_SEEED_STICKY)
+namespace {
+uint8_t* sidewaysCopy(const uint8_t* gray, int width, int height) {
+    uint8_t* out = static_cast<uint8_t*>(ps_malloc(static_cast<size_t>(width) * height));
+    if (!out) return nullptr;
+    for (int y0 = 0; y0 < height; y0 += 32)  // In tiles, for the cache
+        for (int x0 = 0; x0 < width; x0 += 32)
+            for (int y = y0; y < min(y0 + 32, height); y++)
+                for (int x = x0; x < min(x0 + 32, width); x++)
+                    out[static_cast<size_t>(x) * height + y] = gray[static_cast<size_t>(y) * width + x];
+    return out;
+}
+}  // namespace
+
+void AppReader::prepareLiveSources() {
+    if (_pageFit && !_pageFitT) _pageFitT = sidewaysCopy(_pageFit, _pageFitW, _pageFitH);
+    if (_pageGray && !_pageGrayT) _pageGrayT = sidewaysCopy(_pageGray, _pageGrayW, _pageGrayH);
+}
+
+void AppReader::liveWorker(void* self) {
+    AppReader* reader = static_cast<AppReader*>(self);
+    for (;;) {
+        xSemaphoreTake(reader->_liveRequest, portMAX_DELAY);
+        const unsigned long started = micros();
+        reader->renderLiveView(reader->_liveBuffer[reader->_liveJobBuffer], reader->_liveJobView);
+        reader->_liveRenderUs += micros() - started;
+        reader->_liveReady = reader->_liveJobBuffer;
+        reader->_liveRendering = false;
+    }
+}
+
+// Hands the current view to the other core, when it is free and the view moved.
+void AppReader::startLiveRender() {
+    if (!_viewChangedSincePreview || _liveRendering || _liveReady >= 0) return;
+    Book32Display& display = DisplayMgr::getInstance().getDisplay();
+    if (!_liveRequest) _liveRequest = xSemaphoreCreateBinary();
+    const size_t frameBytes = static_cast<size_t>(display.width()) * display.height() / 8;
+    for (uint8_t*& buffer : _liveBuffer)
+        if (!buffer) buffer = static_cast<uint8_t*>(ps_malloc(frameBytes));
+    if (!_liveTask && _liveRequest)
+        xTaskCreatePinnedToCore(liveWorker, "LiveView", 4096, this, 1, &_liveTask, 0);
+    if (!_liveRequest || !_liveTask || !_liveBuffer[0] || !_liveBuffer[1]) return;
+    if (!display.liveActive()) {
+        prepareLiveSources();
+        if (!display.liveBegin()) return;
+        _liveFrames = 0;
+        _liveRenderUs = 0;
+        _liveStartedAt = millis();
+    }
+    _viewChangedSincePreview = false;
+    _gesturePreviewed = true;
+    _liveJobView = _pageView;
+    _liveJobBuffer = 1 - _liveShown;
+    _liveRendering = true;
+    xSemaphoreGive(_liveRequest);
+}
+
+// Fingers up: the last frame drawn goes out, then the drive finishes.
+void AppReader::finishLiveView() {
+    Book32Display& display = DisplayMgr::getInstance().getDisplay();
+    while (_liveRendering) delay(1);
+    if (_liveReady >= 0) {
+        _liveShown = _liveReady;
+        _liveReady = -1;
+        display.liveFrame(_liveBuffer[_liveShown]);
+        _liveFrames++;
+    }
+    display.liveEnd();
+}
+
+// A live frame: the page scaled with nearest pixels and a fixed 4x4 ordered
+// dither (steady while the picture moves; error diffusion would shimmer),
+// written straight into the canvas in the panel's layout (800 x 480, 1 =
+// white; GFX rotation 3: native x = portrait y, native y = 479 - portrait x).
+void AppReader::renderLiveView(uint8_t* out, const PageView& view) {
+    static const uint8_t BAYER[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    Book32Display& display = DisplayMgr::getInstance().getDisplay();
+    const int screenW = display.width(), screenH = display.height();  // Portrait
+    const int nativeW = screenH, pitch = nativeW / 8;
+    if (!_liveCols) {
+        _liveCols = static_cast<int16_t*>(malloc(sizeof(int16_t) * screenW));
+        _liveRows = static_cast<int16_t*>(malloc(sizeof(int16_t) * screenH));
+    }
+    const bool useFull = view.zoomed() && _pageGrayT;
+    const uint8_t* sideways = useFull ? _pageGrayT : _pageFitT;
+    const int sourceW = useFull ? _pageGrayW : _pageFitW, sourceH = useFull ? _pageGrayH : _pageFitH;
+    if (!sideways || !_liveCols || !_liveRows) return;
+    // Source column for each screen column and row for each screen row, -1 off the page.
+    const float scale = view.scale();
+    const float fx = static_cast<float>(sourceW) / view.pageW, fy = static_cast<float>(sourceH) / view.pageH;
+    for (int px = 0; px < screenW; px++) {
+        const float x = view.cx + (px - screenW / 2.0f) / scale;
+        _liveCols[px] = (x < 0 || x >= view.pageW) ? -1 : static_cast<int16_t>(min(sourceW - 1, static_cast<int>(x * fx)));
+    }
+    for (int py = 0; py < screenH; py++) {
+        const float y = view.cy + (py - screenH / 2.0f) / scale;
+        _liveRows[py] = (y < 0 || y >= view.pageH) ? -1 : static_cast<int16_t>(min(sourceH - 1, static_cast<int>(y * fy)));
+    }
+    const bool rotation3 = display.getRotation() != 1;
+    // Native x (along a native row) is portrait y: its page row, -1 off the
+    // page, in native order.
+    static int16_t nativeRows[800];
+    for (int nx = 0; nx < nativeW && nx < 800; nx++) nativeRows[nx] = _liveRows[rotation3 ? nx : nativeW - 1 - nx];
+    static bool byteOnPage[100];
+    for (int byte = 0; byte < pitch && byte < 100; byte++) {
+        bool onPage = true;
+        for (int bit = 0; bit < 8; bit++) onPage = onPage && nativeRows[byte * 8 + bit] >= 0;
+        byteOnPage[byte] = onPage;
+    }
+    // Native row by native row: one portrait column, read down its sideways
+    // copy and written in order.
+    for (int ny = 0; ny < screenW; ny++, out += pitch) {
+        const int px = rotation3 ? screenW - 1 - ny : ny;
+        const int col = _liveCols[px];
+        if (col < 0) {
+            memset(out, 0xFF, pitch);
+            continue;
+        }
+        const uint8_t* column = sideways + static_cast<size_t>(col) * sourceH;
+        // The threshold depends on (portrait y & 3, portrait x & 3); portrait
+        // y runs with native x (or against it, rotation 1).
+        uint8_t threshold[4];
+        for (int i = 0; i < 4; i++) {
+            const int py = rotation3 ? i : (nativeW - 1 - i);
+            threshold[i] = BAYER[py & 3][px & 3] * 16 + 8;
+        }
+        const uint8_t t0 = threshold[0], t1 = threshold[1], t2 = threshold[2], t3 = threshold[3];
+        for (int byte = 0; byte < pitch; byte++) {
+            const int16_t* rows = nativeRows + byte * 8;
+            if (byteOnPage[byte]) {  // No row off the page: no checks
+                out[byte] = uint8_t((column[rows[0]] >= t0) << 7 | (column[rows[1]] >= t1) << 6 |
+                                    (column[rows[2]] >= t2) << 5 | (column[rows[3]] >= t3) << 4 |
+                                    (column[rows[4]] >= t0) << 3 | (column[rows[5]] >= t1) << 2 |
+                                    (column[rows[6]] >= t2) << 1 | (column[rows[7]] >= t3));
+                continue;
+            }
+            uint8_t bits = 0xFF;
+            for (int bit = 0; bit < 8; bit++) {
+                const int row = rows[bit];
+                if (row >= 0 && column[row] < threshold[bit & 3]) bits &= ~(0x80 >> bit);
+            }
+            out[byte] = bits;
+        }
+    }
+}
+#endif
 
 void AppReader::drawPageBook(bool preview) {
     Book32Display& display = DisplayMgr::getInstance().getDisplay();

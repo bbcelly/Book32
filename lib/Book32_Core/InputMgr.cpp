@@ -87,6 +87,23 @@ void InputMgr::pollSerialCommands() {
         }
 #endif
 #if BOOK32_HAS_INKBOY
+        else if (!strncmp(line, "pinch ", 6) || !strncmp(line, "drag ", 5)) {
+            // pinch CX CY FROM TO MS: two fingers FROM..TO apart around (CX, CY).
+            // drag X0 Y0 X1 Y1 MS: one finger from (X0, Y0) to (X1, Y1).
+            Motion m = {};
+            const bool pinch = line[0] == 'p';
+            int ms2 = 0;
+            const int n = pinch ? sscanf(line + 6, "%d %d %d %d %d", &m.x0, &m.y0, &m.spread0, &m.spread1, &ms2)
+                                : sscanf(line + 5, "%d %d %d %d %d", &m.x0, &m.y0, &m.x1, &m.y1, &ms2);
+            if (n == 5 && ms2 > 0) {
+                if (pinch) { m.x1 = m.x0; m.y1 = m.y0; } else { m.spread0 = m.spread1 = -1; }
+                m.ms = ms2;
+                m.start = millis();
+                _motion = m;
+                _motionActive = true;
+                Serial.printf("Serial: %s\n", line);
+            }
+        }
         else if (sscanf(line, "hold %d %d %d", &x, &y, &ms) == 3) {
             _injected = {uint16_t(x), uint16_t(y)};
             _injectedUntil = millis() + ms;
@@ -402,6 +419,21 @@ uint8_t InputMgr::heldTouches(TouchPoint* points) const {
     uint8_t count = millis() - _pointsAt > 250 ? 0 : _pointCount;
     for (uint8_t i = 0; i < count; ++i) points[i] = _points[i];
     if (count < 5 && long(_injectedUntil - millis()) > 0) points[count++] = _injected;
+    if (_motionActive && count < 4) {
+        const Motion& m = _motion;
+        const unsigned long elapsed = millis() - m.start;
+        if (elapsed <= m.ms) {
+            const float t = float(elapsed) / m.ms;
+            const int x = m.x0 + int((m.x1 - m.x0) * t), y = m.y0 + int((m.y1 - m.y0) * t);
+            if (m.spread0 >= 0) {
+                const int half = (m.spread0 + int((m.spread1 - m.spread0) * t)) / 2;
+                points[count++] = {uint16_t(max(0, x - half)), uint16_t(y)};
+                points[count++] = {uint16_t(x + half), uint16_t(y)};
+            } else {
+                points[count++] = {uint16_t(x), uint16_t(y)};
+            }
+        }
+    }
     return count;
 }
 #endif

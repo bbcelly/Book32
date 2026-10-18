@@ -1467,8 +1467,15 @@ void AppReader::update() {
 #if BOOK32_HAS_PAGE_BOOKS
     if (_state == VIEW_READING && _pageBook) {
         pollPageGestures();
-        // Once the page is up and nothing is happening, prepare the next one.
-        if (!_needsRedraw && !_gestureActive && millis() - _pageDrawnAt > 150) prefetchNextPage();
+        // Once the page is up and nothing is happening, prepare the next one,
+        // and the full-size picture so zooming starts at once.
+        if (!_needsRedraw && !_gestureActive && millis() - _pageDrawnAt > 150) {
+            prefetchNextPage();
+            ensureFullPage();
+#if defined(BOARD_SEEED_STICKY)
+            prepareLiveSources();
+#endif
+        }
     }
 #endif
     // Library rendering is static unless input changes selection.

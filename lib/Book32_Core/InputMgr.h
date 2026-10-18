@@ -71,6 +71,10 @@ private:
     TouchPoint _points[5] = {};
     TouchPoint _injected = {};
     volatile unsigned long _injectedUntil = 0;
+    // Serial "pinch" and "drag": fingers that move, for testing gestures.
+    struct Motion { int x0, y0, x1, y1, spread0, spread1; unsigned long start, ms; };
+    Motion _motion = {};
+    volatile bool _motionActive = false;
     volatile uint8_t _pointCount = 0;
     volatile unsigned long _pointsAt = 0;
 #endif

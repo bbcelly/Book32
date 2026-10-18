@@ -255,6 +255,122 @@ void StickyDisplay::setGameMode(bool active) {
     }
 }
 
+// --- Live frames (gestures) --------------------------------------------------
+// The algorithm of InkBoyDrive::DriveCounters over the whole panel: a pixel
+// that changes gets LIVE_PULSES one-frame (~20 ms) drives, one per scan,
+// toward its new color, so a moving picture stays readable while earlier
+// changes finish. Planes are the canvas layout, sent with the same RAM window
+// bb_epaper uses for full frames.
+namespace {
+constexpr int LIVE_WORDS = FRAME_BYTES / 4;
+constexpr uint32_t LIVE_PULSES = 6;
+}
+
+void StickyDisplay::liveWindow() {
+    const uint8_t xRange[4] = {0x00, 0x00, 0x1F, 0x03};  // 0..799
+    const uint8_t yRange[4] = {0xDF, 0x01, 0x00, 0x00};  // 479..0
+    const uint8_t zero[2] = {0x00, 0x00};
+    gameCommandByte<0x11>(0x01);  // X increment, Y decrement
+    gameCommand<0x44>(xRange, sizeof(xRange));
+    gameCommand<0x45>(yRange, sizeof(yRange));
+    gameCommand<0x4E>(zero, sizeof(zero));
+    gameCommand<0x4F>(zero, sizeof(zero));
+}
+
+bool StickyDisplay::liveBegin() {
+    if (_live) return true;
+    if (_gaming || !getBuffer() || !_previousBuffer) return false;
+    auto psram = [](size_t bytes) { return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); };
+    if (!_liveTarget) _liveTarget = static_cast<uint32_t*>(psram(FRAME_BYTES));
+    if (!_liveCount) _liveCount = static_cast<uint32_t*>(psram(4 * FRAME_BYTES));
+    // PSRAM sends as fast as internal RAM here (the SPI clock is the limit).
+    if (!_liveOld) _liveOld = static_cast<uint8_t*>(psram(FRAME_BYTES));
+    if (!_liveNew) _liveNew = static_cast<uint8_t*>(psram(FRAME_BYTES));
+    if (!_liveTarget || !_liveCount || !_liveOld || !_liveNew) return false;
+    // The panel shows the last normal refresh.
+    memcpy(_liveTarget, _previousBuffer, FRAME_BYTES);
+    memset(_liveCount, 0, 4 * FRAME_BYTES);
+    _livePending = 0;
+    _liveBusy = false;
+    _liveWaitUs = _liveCalcUs = _liveSendUs = _liveScans = 0;
+    videoStart(false);  // Inkade's dithered one-frame waveform
+    _live = true;
+    return true;
+}
+
+bool StickyDisplay::liveFrame(const uint8_t* frame) {
+    if (!_live) return false;
+    // The counters are worked out while the panel still drives the last
+    // scan (its data is already in the controller); only sending waits.
+    const int64_t calcStart = esp_timer_get_time();
+    const uint8_t* canvas = frame ? frame : getBuffer();
+    uint32_t* count0 = _liveCount;
+    uint32_t* count1 = count0 + LIVE_WORDS;
+    uint32_t* count2 = count1 + LIVE_WORDS;
+    uint32_t* count3 = count2 + LIVE_WORDS;
+    unsigned pending = 0;
+    for (int i = 0; i < LIVE_WORDS; ++i) {
+        uint32_t next;
+        memcpy(&next, canvas + i * 4, 4);
+        uint32_t c0 = count0[i], c1 = count1[i], c2 = count2[i], c3 = count3[i];
+        const uint32_t changed = next ^ _liveTarget[i];
+        if (changed) {  // Changed pixels start their pulses again
+            _liveTarget[i] = next;
+            c0 = (c0 & ~changed) | ((LIVE_PULSES & 1) ? changed : 0);
+            c1 = (c1 & ~changed) | ((LIVE_PULSES & 2) ? changed : 0);
+            c2 = (c2 & ~changed) | ((LIVE_PULSES & 4) ? changed : 0);
+            c3 = (c3 & ~changed) | ((LIVE_PULSES & 8) ? changed : 0);
+        }
+        const uint32_t active = c0 | c1 | c2 | c3;
+        // Old/new per pixel: 1/0 drives black, 0/1 white, equal holds.
+        const uint32_t newWord = ~(active & ~next), oldWord = ~(active & next);
+        memcpy(_liveNew + i * 4, &newWord, 4);
+        memcpy(_liveOld + i * 4, &oldWord, 4);
+        // One pulse given: count down the active pixels.
+        uint32_t borrow = active, old;
+        old = c0; c0 ^= borrow; borrow &= ~old;
+        old = c1; c1 ^= borrow; borrow &= ~old;
+        old = c2; c2 ^= borrow; borrow &= ~old;
+        c3 ^= borrow;
+        count0[i] = c0; count1[i] = c1; count2[i] = c2; count3[i] = c3;
+        pending += __builtin_popcount(c0 | c1 | c2 | c3);
+    }
+    _livePending = pending;
+    const int64_t waitStart = esp_timer_get_time();
+    _liveCalcUs += waitStart - calcStart;
+    if (_liveBusy && !gameWaitBusy()) return false;
+    _liveBusy = false;
+    const int64_t sendStart = esp_timer_get_time();
+    _liveWaitUs += sendStart - waitStart;
+    liveWindow();
+    gameCommand<0x26>(_liveOld, FRAME_BYTES);
+    liveWindow();
+    gameCommand<0x24>(_liveNew, FRAME_BYTES);
+    if (_gamePowered) gameUpdate<0x0C>();
+    else gameUpdate<0xCC>();
+    _gamePowered = true;
+    _liveBusy = true;  // Drives while the caller draws the next frame
+    _liveSendUs += esp_timer_get_time() - sendStart;
+    _liveScans++;
+    return true;
+}
+
+void StickyDisplay::liveEnd() {
+    if (!_live) return;
+    for (int i = 0; i < 12 && _livePending; ++i) liveFrame();  // Finish every pulse
+    if (_liveBusy) gameWaitBusy();
+    _liveBusy = false;
+    videoPowerOff();
+    _live = false;
+    if (_liveScans)
+        Serial.printf("StickyDisplay: %u live scans, per scan: wait %lu us, counters %lu us, send %lu us\n",
+                      unsigned(_liveScans), static_cast<unsigned long>(_liveWaitUs / _liveScans),
+                      static_cast<unsigned long>(_liveCalcUs / _liveScans),
+                      static_cast<unsigned long>(_liveSendUs / _liveScans));
+    // The panel now shows the canvas: the reference for the next partial.
+    memcpy(_previousBuffer, _liveTarget, FRAME_BYTES);
+}
+
 // --- Grayscale still images --------------------------------------------------
 
 bool StickyDisplay::drawGrayCover(uint8_t* gray, int x, int y, int w, int h) {
