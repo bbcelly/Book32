@@ -194,7 +194,7 @@ private:
     float _pinchStartDistance = 1, _pinchStartZoom = 1, _pinchPageX = 0, _pinchPageY = 0;
     unsigned long _gestureEndedAt = 0, _gestureZeroSince = 0, _lastPreviewAt = 0;
     bool _gesturePinched = false;  // After a pinch, the last finger up doesn't drag
-#if defined(BOARD_SEEED_STICKY)
+#if BOOK32_HAS_LIVE_VIEW
     // Live frames while fingers move (StickyDisplay::liveFrame)
     // Frames are drawn on the other core while this one sends the last one.
     void renderLiveView(uint8_t* out, const PageView& view);

@@ -91,7 +91,7 @@ void AppReader::closePageBook() {
 }
 
 void AppReader::freePage() {
-#if defined(BOARD_SEEED_STICKY)
+#if BOOK32_HAS_LIVE_VIEW
     free(_pageFitT);
     free(_pageGrayT);
     _pageFitT = _pageGrayT = nullptr;
@@ -216,7 +216,7 @@ void AppReader::pollPageGestures() {
         if (now - _gestureZeroSince < RELEASE_MS) return;  // A missed report, not a release
         _gestureActive = false;
         _gestureEndedAt = now;
-#if defined(BOARD_SEEED_STICKY)
+#if BOOK32_HAS_LIVE_VIEW
         Book32Display& display = DisplayMgr::getInstance().getDisplay();
         if (display.liveActive()) {
             finishLiveView();
@@ -295,7 +295,7 @@ void AppReader::pollPageGestures() {
         _dragLastY = y;
     }
 
-#if defined(BOARD_SEEED_STICKY)
+#if BOOK32_HAS_LIVE_VIEW
     // As fast as the panel goes: a new frame whenever the view moved, and
     // otherwise the remaining pulses of the last one.
     Book32Display& display = DisplayMgr::getInstance().getDisplay();
@@ -318,7 +318,7 @@ void AppReader::pollPageGestures() {
 #endif
 }
 
-#if defined(BOARD_SEEED_STICKY)
+#if BOOK32_HAS_LIVE_VIEW
 namespace {
 uint8_t* sidewaysCopy(const uint8_t* gray, int width, int height) {
     uint8_t* out = static_cast<uint8_t*>(ps_malloc(static_cast<size_t>(width) * height));
@@ -390,8 +390,9 @@ void AppReader::finishLiveView() {
 
 // A live frame: the page scaled with nearest pixels and a fixed 4x4 ordered
 // dither (steady while the picture moves; error diffusion would shimmer),
-// written straight into the canvas in the panel's layout (800 x 480, 1 =
-// white; GFX rotation 3: native x = portrait y, native y = 479 - portrait x).
+// written straight into the canvas in the panel's layout (the canvas
+// unrotated: Sticky 800 x 480, LILYGO 944 x 524; 1 = white; GFX rotation 3:
+// native x = portrait y, native y = last row - portrait x).
 void AppReader::renderLiveView(uint8_t* out, const PageView& view) {
     static const uint8_t BAYER[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
     Book32Display& display = DisplayMgr::getInstance().getDisplay();
@@ -419,10 +420,10 @@ void AppReader::renderLiveView(uint8_t* out, const PageView& view) {
     const bool rotation3 = display.getRotation() != 1;
     // Native x (along a native row) is portrait y: its page row, -1 off the
     // page, in native order.
-    static int16_t nativeRows[800];
-    for (int nx = 0; nx < nativeW && nx < 800; nx++) nativeRows[nx] = _liveRows[rotation3 ? nx : nativeW - 1 - nx];
-    static bool byteOnPage[100];
-    for (int byte = 0; byte < pitch && byte < 100; byte++) {
+    static int16_t nativeRows[1024];
+    for (int nx = 0; nx < nativeW && nx < 1024; nx++) nativeRows[nx] = _liveRows[rotation3 ? nx : nativeW - 1 - nx];
+    static bool byteOnPage[128];
+    for (int byte = 0; byte < pitch && byte < 128; byte++) {
         bool onPage = true;
         for (int bit = 0; bit < 8; bit++) onPage = onPage && nativeRows[byte * 8 + bit] >= 0;
         byteOnPage[byte] = onPage;

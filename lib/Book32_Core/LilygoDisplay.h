@@ -35,6 +35,17 @@ public:
     // `blacks[L]` black passes, then `whites[L]` white ones (lighter steps
     // than a black pass alone). Used by later grayscale refreshes.
     void setGrayPulses(const uint8_t* blacks, const uint8_t* whites = nullptr);
+
+    // Live frames while a gesture moves a page: quick black-and-white partial
+    // updates with fewer passes and the panel kept powered. `frame` is in the
+    // canvas layout (CANVAS_W x CANVAS_H, 1 = white). The first frame only
+    // sets the reference (the screen may hold a grayscale page), so it should
+    // match what is shown. liveEnd() restores normal refreshes.
+    bool liveBegin();
+    bool liveFrame(const uint8_t* frame);
+    unsigned livePending() const { return 0; }
+    void liveEnd();
+    bool liveActive() const { return _live; }
 private:
     FASTEPD _panel;
     bool _ready = false, _partial = false, _gaming = false;
@@ -47,6 +58,8 @@ private:
     bool _videoAvailable = false;
     bool _nesGame = false;
     bool _forceFull = false;  // the panel buffers hold a 4-bit image
+    bool _live = false, _liveBase = false;
+    void copyCanvas(const uint8_t* canvas);
     void stopVideo();
     void checkResult(int result);
     void copyRegion(const BB_RECT& rect);

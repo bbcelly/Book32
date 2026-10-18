@@ -1472,7 +1472,7 @@ void AppReader::update() {
         if (!_needsRedraw && !_gestureActive && millis() - _pageDrawnAt > 150) {
             prefetchNextPage();
             ensureFullPage();
-#if defined(BOARD_SEEED_STICKY)
+#if BOOK32_HAS_LIVE_VIEW
             prepareLiveSources();
 #endif
         }

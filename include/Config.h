@@ -156,6 +156,14 @@
 #else
 #define BOOK32_HAS_PAGE_BOOKS 0
 #endif
+
+// Live frames while a gesture moves a page (StickyDisplay / LilygoDisplay
+// liveBegin, liveFrame, liveEnd).
+#if BOOK32_HAS_PAGE_BOOKS && (defined(BOARD_SEEED_STICKY) || defined(BOARD_LILYGO_T5S3_PRO))
+#define BOOK32_HAS_LIVE_VIEW 1
+#else
+#define BOOK32_HAS_LIVE_VIEW 0
+#endif
 // Boards whose Inkade video is the port of InkBoy's drive (320x288 window on
 // an 800x480 panel).
 #if defined(BOARD_SEEED_STICKY)

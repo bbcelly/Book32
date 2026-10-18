@@ -37,15 +37,19 @@ void LilygoDisplay::init(uint32_t, bool, uint16_t, bool) {
     if (_ready) clearScreen();
 }
 
-void LilygoDisplay::refresh(bool partial) {
-    if (!_ready || !getBuffer() || !_panel.currentBuffer()) return;
-    stopVideo();
-    if (!_ready) return;
+void LilygoDisplay::copyCanvas(const uint8_t* canvas) {
     // Both buffers are MSB-first, native-landscape, white=1.
     memset(_panel.currentBuffer(), 0xff, 960 * 540 / 8);
     for (int y = 0; y < LilygoLayout::CANVAS_H; ++y)
         memcpy(_panel.currentBuffer() + (y + LilygoLayout::INSET) * 120 + LilygoLayout::INSET / 8,
-               getBuffer() + y * LilygoLayout::PITCH, LilygoLayout::PITCH);
+               canvas + y * LilygoLayout::PITCH, LilygoLayout::PITCH);
+}
+
+void LilygoDisplay::refresh(bool partial) {
+    if (!_ready || !getBuffer() || !_panel.currentBuffer()) return;
+    stopVideo();
+    if (!_ready) return;
+    copyCanvas(getBuffer());
     if (_forceFull) { partial = false; _forceFull = false; }
     int result = partial ? _panel.partialUpdate(_gaming)
                          : _panel.fullUpdate(CLEAR_SLOW, false);
@@ -121,6 +125,40 @@ bool LilygoDisplay::drawGrayCover(uint8_t* gray, int x, int y, int w, int h) {
     _forceFull = true;
     Serial.printf("LilygoDisplay: grayscale image %dx%d in %lu ms\n", w, h, millis() - started);
     return _ready;
+}
+
+namespace { constexpr uint8_t LIVE_PASSES = 3; }  // Normal partial updates use 4
+
+bool LilygoDisplay::liveBegin() {
+    if (_live) return true;
+    if (!_ready || _gaming || !_panel.currentBuffer()) return false;
+    stopVideo();
+    _panel.setPasses(LIVE_PASSES);
+    _live = _liveBase = true;
+    return true;
+}
+
+bool LilygoDisplay::liveFrame(const uint8_t* frame) {
+    if (!_live || !_ready || !frame) return false;
+    copyCanvas(frame);
+    if (_liveBase) {
+        // The screen may hold a grayscale page, which a black-and-white
+        // reference can't describe: with the inverse as the reference, the
+        // first frame drives every pixel (no flash), clearing the grays.
+        _panel.backupPlane();
+        uint8_t* reference = _panel.previousBuffer();
+        for (size_t i = 0; i < 960 * 540 / 8; ++i) reference[i] = ~reference[i];
+        _liveBase = false;
+    }
+    checkResult(_panel.partialUpdate(true));
+    return _ready;
+}
+
+void LilygoDisplay::liveEnd() {
+    if (!_live) return;
+    _panel.setPasses(4);
+    _live = false;
+    _forceFull = false;  // The reference is the last live frame (1-bit)
 }
 
 void LilygoDisplay::checkResult(int result) {
