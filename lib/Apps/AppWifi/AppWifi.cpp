@@ -31,6 +31,14 @@ constexpr int SETTINGS_ROW_HEIGHT = 82;
 constexpr int SETTINGS_CARD_HEIGHT = 74;
 constexpr int SETTINGS_HOME_ROWS = 7;
 constexpr unsigned long CONNECT_TIMEOUT_MS = 20000;
+// Reading Display rows: text size and footer, then PDF and comic options.
+#if defined(BOARD_LILYGO_T5S3_PRO)
+constexpr int READER_DISPLAY_ROWS = 7;  // + page order, grayscale pages, zoomed view
+#elif BOOK32_HAS_PAGE_BOOKS
+constexpr int READER_DISPLAY_ROWS = 5;  // + page order
+#else
+constexpr int READER_DISPLAY_ROWS = 4;
+#endif
 
 String fittedText(FontMgr& fontMgr, const String& value, int width, int fontSize) {
     if (fontMgr.getTextWidth(value.c_str(), fontSize) <= width) return value;
@@ -152,6 +160,9 @@ void AppWifi::loadDeviceSettings() {
     _showChapter = true;
     _showPageNumber = true;
     _showReadingPercentage = true;
+    _mangaRightToLeft = false;
+    _grayPages = true;
+    _grayZoom = false;
     _soundEnabled = SoundMgr::getInstance().isEnabled();
 
     if (EbookFS.exists("/sleep_config.json")) {
@@ -181,6 +192,9 @@ void AppWifi::loadDeviceSettings() {
             _showChapter = doc["showChapter"] | true;
             _showPageNumber = doc["showPageNumber"] | true;
             _showReadingPercentage = doc["showReadingPercentage"] | true;
+            _mangaRightToLeft = doc["mangaRightToLeft"] | false;
+            _grayPages = doc["grayPages"] | true;
+            _grayZoom = doc["grayZoom"] | false;
         }
         readerFile.close();
     }
@@ -229,25 +243,24 @@ void AppWifi::saveSleepSettings() {
 }
 
 void AppWifi::saveReaderSettings() {
-    DynamicJsonDocument doc(512);
-    doc["refreshFrequency"] = READER_FULL_REFRESH_INTERVAL_DEFAULT;
-    doc["fontSize"] = 18;
-    doc["fontFamily"] = "native";
+    // Start from the saved file so settings made in the web interface are kept.
+    DynamicJsonDocument doc(768);
     File existing;
     if (EbookFS.exists("/reader_config.json")) existing = EbookFS.open("/reader_config.json", "r");
     else if (SystemFS.exists("/reader_config.json")) existing = SystemFS.open("/reader_config.json", "r");
     if (existing) {
-            DynamicJsonDocument savedDoc(512);
-            if (!deserializeJson(savedDoc, existing)) {
-                doc["refreshFrequency"] = savedDoc["refreshFrequency"] | READER_FULL_REFRESH_INTERVAL_DEFAULT;
-                doc["fontSize"] = savedDoc["fontSize"] | READER_FONT_SIZE_DEFAULT;
-                doc["fontFamily"] = savedDoc["fontFamily"] | "native";
-                doc["showChapter"] = savedDoc["showChapter"] | true;
-                doc["showPageNumber"] = savedDoc["showPageNumber"] | true;
-                doc["showReadingPercentage"] = savedDoc["showReadingPercentage"] | true;
-            }
-            existing.close();
+        if (deserializeJson(doc, existing) || !doc.is<JsonObject>()) doc.clear();
+        existing.close();
     }
+    if (!doc.containsKey("refreshFrequency")) doc["refreshFrequency"] = READER_FULL_REFRESH_INTERVAL_DEFAULT;
+    if (!doc.containsKey("fontFamily")) doc["fontFamily"] = "native";
+#if BOOK32_HAS_PAGE_BOOKS
+    doc["mangaRightToLeft"] = _mangaRightToLeft;
+#endif
+#if defined(BOARD_LILYGO_T5S3_PRO)
+    doc["grayPages"] = _grayPages;
+    doc["grayZoom"] = _grayZoom;
+#endif
     doc["fontSize"] = _fontSizePt;
     doc["showChapter"] = _showChapter;
     doc["showPageNumber"] = _showPageNumber;
@@ -532,7 +545,7 @@ void AppWifi::handleTouch(uint16_t x, uint16_t y) {
         if (y < SETTINGS_TOP) return;
         int row = (y - SETTINGS_TOP) / SETTINGS_ROW_HEIGHT;
         int withinRow = (y - SETTINGS_TOP) % SETTINGS_ROW_HEIGHT;
-        if (row < 0 || row > 3 || withinRow >= SETTINGS_CARD_HEIGHT) return;
+        if (row < 0 || row >= READER_DISPLAY_ROWS || withinRow >= SETTINGS_CARD_HEIGHT) return;
         SoundMgr::getInstance().beep();
 
         if (row == 0) {
@@ -541,8 +554,14 @@ void AppWifi::handleTouch(uint16_t x, uint16_t y) {
             _showChapter = !_showChapter;
         } else if (row == 2) {
             _showPageNumber = !_showPageNumber;
-        } else {
+        } else if (row == 3) {
             _showReadingPercentage = !_showReadingPercentage;
+        } else if (row == 4) {
+            _mangaRightToLeft = !_mangaRightToLeft;
+        } else if (row == 5) {
+            _grayPages = !_grayPages;
+        } else {
+            _grayZoom = !_grayZoom;
         }
         saveReaderSettings();
         _fullRefresh = true;
@@ -827,6 +846,16 @@ void AppWifi::drawReaderDisplay() {
                         "Page number", _showPageNumber ? "Shown" : "Hidden");
         drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 3,
                         "Reading percentage", _showReadingPercentage ? "Shown" : "Hidden");
+#if BOOK32_HAS_PAGE_BOOKS
+        drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 4,
+                        "Manga page order", _mangaRightToLeft ? "Right to left (manga)" : "Left to right");
+#endif
+#if defined(BOARD_LILYGO_T5S3_PRO)
+        drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 5,
+                        "Grayscale pages", _grayPages ? "On - 16 grays, full refresh" : "Off - faster, dithered");
+        drawSettingCard(display, fontMgr, SETTINGS_TOP + SETTINGS_ROW_HEIGHT * 6,
+                        "Zoomed view", _grayZoom ? "Grayscale - 16 grays, full refresh" : "Fast - black and white, no flash");
+#endif
         fontMgr.drawTextCentered(display, "Tap an option to change it", 760,
                                  FONT_SIZE_SMALL, GxEPD_BLACK);
     } while (display.nextPage());

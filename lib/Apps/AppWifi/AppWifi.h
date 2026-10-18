@@ -57,6 +57,9 @@ private:
     bool _showChapter = true;
     bool _showPageNumber = true;
     bool _showReadingPercentage = true;
+    bool _mangaRightToLeft = false;  // PDFs and comics: right-to-left page order
+    bool _grayPages = true;          // LILYGO: whole pages in 16 grays
+    bool _grayZoom = false;          // LILYGO: zoomed views in 16 grays
     bool _soundEnabled = true;
     bool _scanning = false;
     bool _connecting = false;
