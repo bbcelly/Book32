@@ -50,7 +50,15 @@ void LilygoDisplay::refresh(bool partial) {
     stopVideo();
     if (!_ready) return;
     copyCanvas(getBuffer());
-    if (_forceFull) { partial = false; _forceFull = false; }
+    if (_forceFull && partial) {
+        // The reference is a 4-bit (grayscale) image. Instead of a flashing
+        // full refresh, the inverse of the new frame becomes the reference,
+        // so this partial drives every pixel and clears the grays.
+        _panel.backupPlane();
+        uint8_t* reference = _panel.previousBuffer();
+        for (size_t i = 0; i < 960 * 540 / 8; ++i) reference[i] = ~reference[i];
+    }
+    _forceFull = false;
     int result = partial ? _panel.partialUpdate(_gaming)
                          : _panel.fullUpdate(CLEAR_SLOW, false);
     checkResult(result);
