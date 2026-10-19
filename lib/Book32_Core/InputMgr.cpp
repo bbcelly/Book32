@@ -41,6 +41,10 @@ void InputMgr::init() {
 #endif
     btn.attachClick(staticClick, this);
     btn.attachLongPressStart(staticLongPress, this);
+#if LILYGO_T5S3_PLAIN
+    // One key only: a double click takes the "side" action (light by default).
+    btn.attachDoubleClick(staticDoubleClick, this);
+#endif
 
 #if defined(BOARD_SEEED_STICKY)
     btnUp.setDebounceMs(30);
@@ -181,7 +185,9 @@ void InputMgr::update() {
     });
 #if defined(BOARD_LILYGO_T5S3_PRO)
     LilygoControls::instance().apply();
+#if !LILYGO_T5S3_PLAIN
     pollFrontlightButton();
+#endif
 #endif
     if (!_taskRunning) {
         btn.tick();
@@ -292,8 +298,12 @@ void InputMgr::onClick() {
 }
 
 void InputMgr::onDoubleClick() {
+#if LILYGO_T5S3_PLAIN
+    mappedButton(false);
+#else
     BatteryMgr::getInstance().resetIdleTimer();
     enqueueAction(INPUT_PREV);
+#endif
 }
 
 void InputMgr::onLongPress() {
@@ -380,6 +390,7 @@ void InputMgr::pollTouch() {
 }
 
 #if defined(BOARD_LILYGO_T5S3_PRO)
+#if !LILYGO_T5S3_PLAIN
 void InputMgr::pollFrontlightButton() {
     const uint32_t now = millis();
     if (uint32_t(now - _frontlightPolledAt) < 20) return;
@@ -399,6 +410,7 @@ void InputMgr::pollFrontlightButton() {
         mappedButton(false);
     }
 }
+#endif
 
 void InputMgr::mappedButton(bool front) {
     const auto action = front ? LilygoControls::instance().frontAction() : LilygoControls::instance().sideAction();
@@ -408,7 +420,8 @@ void InputMgr::mappedButton(bool front) {
     else if (action == LilygoControls::LIGHT) {
         auto& display = DisplayMgr::getInstance().getDisplay();
         display.setFrontlight(!display.frontlightOn());
-        Serial.printf("Frontlight: %s (%s)\n", display.frontlightOn() ? "on" : "off", front ? "front touch key" : "S3 switch");
+        Serial.printf("Frontlight: %s (%s)\n", display.frontlightOn() ? "on" : "off",
+                      front ? "front touch key" : LILYGO_T5S3_PLAIN ? "side key double click" : "S3 switch");
     }
 }
 

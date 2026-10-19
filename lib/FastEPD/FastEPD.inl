@@ -233,6 +233,12 @@ const BBPANELDEF panelDefs[] = {
       10, 0, 2, 42, 1, 0, 46 /* LoRa CS */, u8M5Matrix, sizeof(u8M5Matrix), 16, -1600}, // BB_PANEL_LILYGO_T5PRO 
     {1440, 720, 40000000, BB_PANEL_FLAG_MIRROR_X, {27,28,29,30,31,32,33,34}, 8, BB_NOT_USED, 36, 13, 25, 0, 26,
       24, 0, 7, 8, 0, 0, 11 /* LED1_EN */, u8M5Matrix, sizeof(u8M5Matrix), 16, -1600}, // BB_PANEL_LILYGO_T5P4 
+    // Plain LilyGo T5-4.7 E-Paper S3 V2.3/V2.4 (LilyGo-EPD47 esp32s3). Same ED047TC1 panel and
+    // 74HCT4094 control register bit layout as the H752 above (the LilyGo* callbacks), on the
+    // EPD47 pins: D0..D7 = 8,1,2,3,4,5,6,7, CKV 38, STH 40, CKH 41, register data 13 / clock 12 /
+    // store 0 (BOOT). GPIO48 (unused SPI header pad) is the LCD driver's dummy DC line.
+    {960, 540, 20000000, BB_PANEL_FLAG_SLOW_SPH, {8,1,2,3,4,5,6,7}, 8, BB_NOT_USED, BB_NOT_USED, 38, 40, 0, 0,
+      41, 0, 13, 12, 0, 0, 48, u8M5Matrix, sizeof(u8M5Matrix), 16, -1600}, // BB_PANEL_LILYGO_T5S3
     {1872, 1404, 26666666, BB_PANEL_FLAG_MIRROR_X, {8,18,17,16,15,7,6,5,47,21,14,13,12,11,10,9}, 16, 11, 48, 45, 41, 8, 42,
       4, 14, 39, 40, BB_NOT_USED, 0, 46, u8GrayMatrix, sizeof(u8GrayMatrix), 44, -1100}, // BB_PANEL_TRMNL_X
 {0, 0, 26666666, BB_PANEL_FLAG_NONE, {2,3,4,5,6,7,8,9}, 8, 26, 45, 51, 46, 47, 48,
@@ -313,6 +319,7 @@ const BBPANELPROCS panelProcs[] = {
     {EPDiyV7RAWEinkPower, EPDiyV7RAWIOInit, EPDiyV7RowControl, NULL, NULL}, // BB_PANEL_V7_RAW
     {LilyGoEinkPower, LilyGoIOInit, LilyGoRowControl, NULL, NULL},// BB_PANEL_LILYGO_T5PRO
     {EPDiyV7EinkPower, EPDiyV7IOInit, EPDiyV7RowControl, EPDiyV7IODeInit, EPDiyV7ExtIO}, // BB_PANEL_LILYGO_T5P4  
+    {LilyGoEinkPower, LilyGoIOInit, LilyGoRowControl, NULL, NULL}, // BB_PANEL_LILYGO_T5S3
     {EPDiyV7EinkPower, EPDiyV7IOInit, EPDiyV7RowControl, EPDiyV7IODeInit, EPDiyV7ExtIO}, // BB_PANEL_TRMNL_X
     {epdInkyEinkPower, epdInkyIOInit, EPDiyV7RowControl, NULL, NULL}, // BB_PANEL_EPDINKY_P4
     {epdInkyEinkPower, epdInkyIOInit, EPDiyV7RowControl, NULL, NULL}, // BB_PANEL_EPDINKY_P4_16
