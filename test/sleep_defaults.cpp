@@ -3,9 +3,9 @@
 #include "../lib/Book32_Core/SleepDefaults.h"
 int main() {
 #if defined(BOARD_LILYGO_T5S3_PRO) && LILYGO_T5S3_PLAIN
-    static_assert(PIN_BUTTON == 21, "plain T5-4.7 S3 wakes from the side key, BOOT is the shift register strobe");
+    static_assert(PIN_BUTTON == 21, "plain T5-4.7 S3 wakes from the top key, BOOT is the shift register strobe");
     static_assert(SLEEP_CONFIG_VERSION == 3, "message migration schema");
-    assert(strcmp(SLEEP_MESSAGE_DEFAULT,"Press the side key to wake")==0);
+    assert(strcmp(SLEEP_MESSAGE_DEFAULT,"Press the top key to wake")==0);
 #elif defined(BOARD_LILYGO_T5S3_PRO)
     static_assert(PIN_BUTTON == 0, "LILYGO BOOT wake is GPIO0");
     static_assert(SLEEP_CONFIG_VERSION == 3, "message migration schema");

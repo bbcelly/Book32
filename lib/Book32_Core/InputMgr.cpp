@@ -421,7 +421,7 @@ void InputMgr::mappedButton(bool front) {
         auto& display = DisplayMgr::getInstance().getDisplay();
         display.setFrontlight(!display.frontlightOn());
         Serial.printf("Frontlight: %s (%s)\n", display.frontlightOn() ? "on" : "off",
-                      front ? "front touch key" : LILYGO_T5S3_PLAIN ? "side key double click" : "S3 switch");
+                      front ? "front touch key" : LILYGO_T5S3_PLAIN ? "top key double click" : "S3 switch");
     }
 }
 

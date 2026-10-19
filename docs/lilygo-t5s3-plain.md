@@ -41,12 +41,13 @@ the internal book storage.
 
 The three buttons on the left edge, top to bottom:
 
-- **STR** (BOOT, GPIO0): not a user key here. It is also the shift register's
-  store line, so the firmware leaves it alone; pressing it does nothing.
-- **Side key** (silkscreen SENSOP_VN, GPIO21): press = back, double click =
-  the "side" action from Settings > Light & buttons (light on/off by default),
-  hold 2 s and release = sleep, press again = wake.
-- **RESET**.
+- **Top key** (GPIO21, net SENSOP_VN): the user key. Press = back, double
+  click = the "side" action from Settings > Light & buttons (light on/off by
+  default), hold 2 s and release = sleep, press again = wake.
+- **Middle key** (BOOT, GPIO0, net STR_IO0): not a user key here. It is also
+  the shift register's store line, so the firmware leaves it alone; pressing
+  it does nothing.
+- **Bottom key**: RESET.
 
 Tap icons and books; while reading, tap the left or right third of the page.
 
@@ -57,7 +58,7 @@ PT4103 or any enable/PWM-controlled constant-current driver), connect its
 control input to **GPIO10**, which is the unused MOSI pad of the 40-pin
 header. InkDeck drives it with 500 Hz PWM at the brightness chosen in
 Settings, holds it low in deep sleep, and the settings page, the web UI and the
-side key's double click all work as on the Pro Lite. Another free GPIO can be
+top key's double click all work as on the Pro Lite. Another free GPIO can be
 used instead by changing `PIN_FRONTLIGHT` in `include/Config.h`.
 
 ## How the panel is driven

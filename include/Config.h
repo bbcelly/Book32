@@ -28,7 +28,7 @@
 
 #if defined(BOARD_LILYGO_T5S3_PRO) && LILYGO_T5S3_PLAIN
 #define SLEEP_CONFIG_VERSION 3
-#define SLEEP_MESSAGE_DEFAULT "Press the side key to wake"
+#define SLEEP_MESSAGE_DEFAULT "Press the top key to wake"
 #elif defined(BOARD_LILYGO_T5S3_PRO)
 #define SLEEP_CONFIG_VERSION 3
 #define SLEEP_MESSAGE_DEFAULT "Press BOOT to wake"
@@ -75,7 +75,7 @@
 // "Screen-4.7-S3 V2.4 24-12-03"). The panel's control register is a 74HCT4094
 // shift register on GPIO13 (data) / GPIO12 (clock) / GPIO0 (store), see
 // FastEPD's BB_PANEL_LILYGO_T5S3, so BOOT cannot double as the user button.
-#define PIN_BUTTON 21 // side key (SENSOP_VN): back; hold 2s to sleep, press to wake
+#define PIN_BUTTON 21 // top key (SENSOP_VN): back; hold 2s to sleep, press to wake
 // No frontlight at the factory. An add-on LED driver's enable/PWM input goes on
 // GPIO10, the otherwise unused MOSI pad of the 40-pin header (any free GPIO
 // works; change this define to match the wiring).

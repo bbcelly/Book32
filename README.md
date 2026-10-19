@@ -14,7 +14,7 @@ Install it from your browser with the
 | Book32 (DIY build) | 7.5 inch, 800 × 480 | One button | 10 MB internal |
 | Seeed Studio Sticky | 3.97 inch, 800 × 480 | Touch screen and three buttons | MicroSD, or 23 MB internal without a card |
 | LILYGO T5 E-Paper S3 Pro H752-01 / Pro Lite (experimental) | 4.7 inch, 960 × 540, frontlight | Touch screen and buttons | MicroSD, or internal without a card |
-| LILYGO T5-4.7 E-Paper S3 V2.3/V2.4, the plain board (build from source) | 4.7 inch, 960 × 540 | Touch screen and the side key | MicroSD, or internal without a card |
+| LILYGO T5-4.7 E-Paper S3 V2.3/V2.4, the plain board (build from source) | 4.7 inch, 960 × 540 | Touch screen and the top key | MicroSD, or internal without a card |
 
 The LILYGO Pro build supports the H752-01 / Pro Lite revision only, not the older
 H752 board. The plain T5-4.7 E-Paper S3 (no frontlight, GPS or LoRa) has its own
