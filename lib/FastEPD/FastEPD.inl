@@ -700,6 +700,9 @@ void bbepSendShiftData(FASTEPDSTATE *pState)
     }
     // set STR to write the new data to the output to pins
     gpio_set_level((gpio_num_t)pState->panelDef.ioShiftSTR, 1);
+    // Plain T5-4.7 S3: STR (GPIO0) is open-drain so the BOOT key on the same
+    // line can be read; give the pull-up time to raise it before the next write.
+    if (pState->iPanelType == BB_PANEL_LILYGO_T5S3) delayMicroseconds(2);
 } /* bbepSendShiftData() */
 //
 // LilyGo T5S3 Pro control functions
@@ -752,7 +755,22 @@ int LilyGoIOInit(void *pBBEP)
     bbepPinMode(pState->panelDef.ioSDA, OUTPUT);
     bbepPinMode(pState->panelDef.ioSCL, OUTPUT);
     gpio_set_level((gpio_num_t)pState->panelDef.ioSCL, 0);
-    bbepPinMode(pState->panelDef.ioShiftSTR, OUTPUT);
+    if (pState->iPanelType == BB_PANEL_LILYGO_T5S3) {
+        // STR shares GPIO0 with the BOOT key (button to GND, 10k pull-up).
+        // Open-drain with the pull-up: the register sees a clean strobe, a
+        // pressed key never fights the driver, and the level reads back as
+        // the key state between writes.
+        gpio_config_t io_conf = {};
+        io_conf.pin_bit_mask = 1ULL << pState->panelDef.ioShiftSTR;
+        io_conf.mode = GPIO_MODE_INPUT_OUTPUT_OD;
+        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.intr_type = GPIO_INTR_DISABLE;
+        gpio_reset_pin((gpio_num_t)pState->panelDef.ioShiftSTR);
+        gpio_config(&io_conf);
+    } else {
+        bbepPinMode(pState->panelDef.ioShiftSTR, OUTPUT);
+    }
     gpio_set_level((gpio_num_t)pState->panelDef.ioShiftSTR, 0);
     bbepPinMode(pState->panelDef.ioCKV, OUTPUT);
     bbepPinMode(pState->panelDef.ioSPH, OUTPUT);

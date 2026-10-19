@@ -76,6 +76,10 @@
 // shift register on GPIO13 (data) / GPIO12 (clock) / GPIO0 (store), see
 // FastEPD's BB_PANEL_LILYGO_T5S3, so BOOT cannot double as the user button.
 #define PIN_BUTTON 21 // top key (SENSOP_VN): back; hold 2s to sleep, press to wake
+// Middle key = BOOT, GPIO0, shared with the display register strobe (read as
+// open-drain between writes): click next, double click previous, hold = home.
+// Not a wake source: GPIO0 is sampled as a strapping pin on wake-up.
+#define PIN_BOOT_KEY 0
 // No frontlight at the factory. An add-on LED driver's enable/PWM input goes on
 // GPIO10, the otherwise unused MOSI pad of the 40-pin header (any free GPIO
 // works; change this define to match the wiring).

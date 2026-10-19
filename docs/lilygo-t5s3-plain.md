@@ -44,9 +44,12 @@ The three buttons on the left edge, top to bottom:
 - **Top key** (GPIO21, net SENSOP_VN): the user key. Press = back, double
   click = the "side" action from Settings > Light & buttons (light on/off by
   default), hold 2 s and release = sleep, press again = wake.
-- **Middle key** (BOOT, GPIO0, net STR_IO0): not a user key here. It is also
-  the shift register's store line, so the firmware leaves it alone; pressing
-  it does nothing.
+- **Middle key** (BOOT, GPIO0, net STR_IO0): click = next, double click =
+  previous, hold 1 s = home. The line doubles as the display register's
+  strobe, driven open-drain and read back between writes, so a press held
+  through a page turn can garble that one refresh. It cannot wake the device:
+  GPIO0 is a strapping pin and a key held at wake-up would select the ROM
+  download mode instead of the firmware.
 - **Bottom key**: RESET.
 
 Tap icons and books; while reading, tap the left or right third of the page.
