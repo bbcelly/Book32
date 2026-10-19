@@ -39,12 +39,16 @@ the internal book storage.
 
 ## Controls
 
-- Tap icons and books; while reading, tap the left or right third of the page.
-- Side key (GPIO21): press = back, double click = the "side" action from
-  Settings > Light & buttons (light on/off by default), hold 2 s and release =
-  sleep, press again = wake.
-- BOOT and RESET are the usual ESP32 strapping buttons. BOOT is also the
-  shift register's store line, so it must stay free.
+The three buttons on the left edge, top to bottom:
+
+- **STR** (BOOT, GPIO0): not a user key here. It is also the shift register's
+  store line, so the firmware leaves it alone; pressing it does nothing.
+- **Side key** (silkscreen SENSOP_VN, GPIO21): press = back, double click =
+  the "side" action from Settings > Light & buttons (light on/off by default),
+  hold 2 s and release = sleep, press again = wake.
+- **RESET**.
+
+Tap icons and books; while reading, tap the left or right third of the page.
 
 ## Optional frontlight
 
@@ -56,12 +60,23 @@ Settings, holds it low in deep sleep, and the settings page, the web UI and the
 side key's double click all work as on the Pro Lite. Another free GPIO can be
 used instead by changing `PIN_FRONTLIGHT` in `include/Config.h`.
 
+## How the panel is driven
+
+FastEPD's `BB_PANEL_LILYGO_T5S3` uses the shift register callbacks written
+for the older H752 Pro (same panel, same register bit layout) with the EPD47
+pins. One transport difference matters: on this board STH is an active-high
+start pulse clocked in just ahead of the row, not a chip select. FastEPD
+therefore routes STH to the I80 D/C line and sends every row as a 10-bit
+zero command (D/C high) followed by the pixel bytes (D/C low), exactly as
+LilyGo's own `i2s_data_bus.c` does on the ESP32-S3. With STH held low for the
+whole row (FastEPD's `BB_PANEL_FLAG_SLOW_SPH` path) the source driver never
+starts and the panel stays blank. Verified on a V2.4 board: boot screen, menu,
+touch and the reader render correctly.
+
 ## Known gaps and tuning
 
-- Untested on hardware at the time of writing; the row timing in
-  `LilyGoRowControl` was written for the older H752 Pro, which shares this
-  panel and register layout. Ghosting or faint stripes would be tuned there
-  first, then in the gray pulse tables (`StickyGrayImage::LILYGO_*`).
+- Gray levels use the H752 pulse tables (`StickyGrayImage::LILYGO_*`); tune
+  there if covers look flat or banded.
 - No front capacitive Home key: Home is available from a Bluetooth gamepad
   and by returning through the menus.
 - Battery percentage is derived from voltage. `BATTERY_VOLTAGE_CALIBRATION`

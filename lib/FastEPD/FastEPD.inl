@@ -237,7 +237,7 @@ const BBPANELDEF panelDefs[] = {
     // 74HCT4094 control register bit layout as the H752 above (the LilyGo* callbacks), on the
     // EPD47 pins: D0..D7 = 8,1,2,3,4,5,6,7, CKV 38, STH 40, CKH 41, register data 13 / clock 12 /
     // store 0 (BOOT). GPIO48 (unused SPI header pad) is the LCD driver's dummy DC line.
-    {960, 540, 20000000, BB_PANEL_FLAG_SLOW_SPH, {8,1,2,3,4,5,6,7}, 8, BB_NOT_USED, BB_NOT_USED, 38, 40, 0, 0,
+    {960, 540, 10000000, BB_PANEL_FLAG_NONE, {8,1,2,3,4,5,6,7}, 8, BB_NOT_USED, BB_NOT_USED, 38, 40, 0, 0,
       41, 0, 13, 12, 0, 0, 48, u8M5Matrix, sizeof(u8M5Matrix), 16, -1600}, // BB_PANEL_LILYGO_T5S3
     {1872, 1404, 26666666, BB_PANEL_FLAG_MIRROR_X, {8,18,17,16,15,7,6,5,47,21,14,13,12,11,10,9}, 16, 11, 48, 45, 41, 8, 42,
       4, 14, 39, 40, BB_NOT_USED, 0, 46, u8GrayMatrix, sizeof(u8GrayMatrix), 44, -1100}, // BB_PANEL_TRMNL_X
@@ -341,6 +341,10 @@ static uint8_t u8Cache[1024]; // used also for masking a row of 2-bit codes, nee
 #ifndef __LINUX__
 static gpio_num_t u8CKV, u8SPH;
 static uint8_t bSlowSPH = 0;
+// Panels whose start pulse (STH/XSTL) is an active-high pulse clocked in just
+// ahead of the row data. The I80 D/C line drives STH: each row goes out as a
+// 10-bit zero "command" with D/C high, then the pixel bytes with D/C low.
+static uint8_t bSthCommand = 0;
 #if defined(BOARD_LILYGO_T5S3_PRO)
 // Used only by videoScan's exclusive queued transport. Scalar atomics are
 // lock-free on ESP32-S3; publish pins/count before enabling the ISR branch.
@@ -1710,7 +1714,7 @@ static void IRAM_ATTR bbepWriteRow(FASTEPDSTATE *pState, uint8_t *pData, int iLe
     memset(&tx_cfg, 0, sizeof(tx_cfg));
     err = parlio_tx_unit_transmit(parlio_tx_handle, pData, (iLen + pState->panelDef.iLinePadding) * 8, &tx_cfg);
 #else
-    err = esp_lcd_panel_io_tx_color(io_handle, -1, pData, iLen + pState->panelDef.iLinePadding);
+    err = esp_lcd_panel_io_tx_color(io_handle, bSthCommand ? 0 : -1, pData, iLen + pState->panelDef.iLinePadding);
 #endif // S3/C5
     if (err != ESP_OK) {
        // Serial.printf("Error %d sending row data\n", (int)err);
@@ -1822,7 +1826,8 @@ int bbepIOInit(FASTEPDSTATE *pState)
 #else
     // Initialize the ESP32 LCD API to drive parallel data at high speed
     // The code forces the use of a D/C pin, so we must assign it to an unused GPIO on each device
-    s3_bus_config.dc_gpio_num = (gpio_num_t)pState->panelDef.ioDCDummy;
+    s3_bus_config.dc_gpio_num = (gpio_num_t)((pState->iPanelType == BB_PANEL_LILYGO_T5S3)
+                                             ? pState->panelDef.ioSPH : pState->panelDef.ioDCDummy);
     s3_bus_config.wr_gpio_num = (gpio_num_t)pState->panelDef.ioCL;
     s3_bus_config.bus_width = pState->panelDef.bus_width;
     for (int i=0; i<pState->panelDef.bus_width; i++) {
@@ -1830,7 +1835,21 @@ int bbepIOInit(FASTEPDSTATE *pState)
     }
     ESP_ERROR_CHECK(esp_lcd_new_i80_bus(&s3_bus_config, &i80_bus));
     s3_io_config.pclk_hz = pState->panelDef.bus_speed;
-    if (pState->panelDef.flags & BB_PANEL_FLAG_SLOW_SPH) {
+    if (pState->iPanelType == BB_PANEL_LILYGO_T5S3) {
+        // Plain LilyGo T5-4.7 S3: STH is an active-high start pulse ahead of
+        // the row, not a chip select. Route it to the I80 D/C line and send
+        // every row as a 10-bit zero command (D/C high) followed by the pixel
+        // bytes (D/C low), the sequence LilyGo's i2s_data_bus.c uses.
+        bSthCommand = 1;
+        bSlowSPH = 0;
+        s3_bus_config.dc_gpio_num = (gpio_num_t)pState->panelDef.ioSPH;
+        s3_io_config.cs_gpio_num = (gpio_num_t)-1;
+        s3_io_config.lcd_cmd_bits = 10;
+        s3_io_config.dc_levels.dc_idle_level = 0;
+        s3_io_config.dc_levels.dc_cmd_level = 1;
+        s3_io_config.dc_levels.dc_dummy_level = 0;
+        s3_io_config.dc_levels.dc_data_level = 0;
+    } else if (pState->panelDef.flags & BB_PANEL_FLAG_SLOW_SPH) {
         bSlowSPH = 1;
         s3_io_config.cs_gpio_num = (gpio_num_t)-1; // disable hardware CS
     } else {

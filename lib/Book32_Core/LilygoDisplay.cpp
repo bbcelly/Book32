@@ -34,7 +34,10 @@ void LilygoDisplay::init(uint32_t, bool, uint16_t, bool) {
     // Plain T5-4.7 S3: panel power and control lines through the 74HCT4094
     // shift register (the vendor ed047tc1.c protocol, as FastEPD's LilyGo*
     // callbacks implement it).
-    _ready = _panel.initPanel(BB_PANEL_LILYGO_T5S3, 20000000) == BBEP_SUCCESS;
+    // The predefined panel carries its size, and initPanel() allocates the
+    // buffers; a second setPanelSize() would be refused (buffers exist).
+    _ready = _panel.initPanel(BB_PANEL_LILYGO_T5S3, 10000000) == BBEP_SUCCESS;
+    if (!_ready) Serial.println("LILYGO T5S3: panel init failed");
 #else
     // Do not energize a panel using the older H752's incompatible pinout.
     Wire.beginTransmission(0x20);
@@ -44,8 +47,8 @@ void LilygoDisplay::init(uint32_t, bool, uint16_t, bool) {
     }
     // Official H752-01 examples use the EPDiy V7 parallel/power mapping.
     _ready = _panel.initPanel(BB_PANEL_EPDIY_V7, 20000000) == BBEP_SUCCESS;
-#endif
     if (_ready) _ready = _panel.setPanelSize(960, 540) == BBEP_SUCCESS;
+#endif
     if (_ready) _ready = _panel.setMode(BB_MODE_1BPP) == BBEP_SUCCESS;
     setGrayPulses(StickyGrayImage::LILYGO_BLACKS, StickyGrayImage::LILYGO_WHITES);
     if (_ready) clearScreen();
