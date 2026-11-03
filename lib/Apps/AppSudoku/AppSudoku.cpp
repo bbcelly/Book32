@@ -387,9 +387,15 @@ void AppSudoku::drawPlaying() {
 
     display.firstPage();
     do {
+        if (headerOnly) {
+            // The LILYGO ignores the window and refreshes from its whole
+            // canvas, so repaint only the header and keep the rest drawn.
+            display.fillRect(l.header.x, l.header.y, l.header.w, l.header.h, GxEPD_WHITE);
+            drawHeader(display, l);
+            continue;
+        }
         display.fillScreen(GxEPD_WHITE);
         drawHeader(display, l);
-        if (headerOnly) continue;
 
         for (int cell = 0; cell < 81; ++cell) drawCell(display, l, cell);
         for (int k = 0; k <= 9; ++k) {
