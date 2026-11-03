@@ -112,8 +112,10 @@ void AppSudoku::newGame(Difficulty difficulty) {
     uint8_t puzzle[81], solution[81];
     Sudoku::Rng rng(esp_random());
     const unsigned long t0 = millis();
-    Sudoku::generate(difficulty, rng, puzzle, solution);
-    Serial.printf("Sudoku: %s puzzle in %lu ms\n", Sudoku::difficultyName(difficulty), millis() - t0);
+    // Yield between attempts so the idle task (and its watchdog) runs.
+    const int rating = Sudoku::generate(difficulty, rng, puzzle, solution, 400, [] { vTaskDelay(1); });
+    Serial.printf("Sudoku: %s puzzle (rated %d) in %lu ms\n", Sudoku::difficultyName(difficulty), rating,
+                  millis() - t0);
     _game.start(puzzle, difficulty);
     _hasGame = true;
     _solved = false;
@@ -242,7 +244,7 @@ void AppSudoku::moveSelection(int step) {
 }
 
 void AppSudoku::handleInput(InputAction action) {
-    if (action == INPUT_NONE) return;
+    if (action == INPUT_NONE || _pending >= 0) return;
     if (action == INPUT_BACK) {
         if (_view == VIEW_CHOOSING && _hasGame) {
             _view = VIEW_PLAYING;
@@ -262,8 +264,10 @@ void AppSudoku::handleTouch(uint16_t x, uint16_t y) {
     if (_view == VIEW_CHOOSING) {
         for (int d = 0; d < Sudoku::DIFFICULTY_COUNT; ++d) {
             if (l.choices[d].contains(x, y)) {
+                if (_pending >= 0) return;
                 SoundMgr::getInstance().beep();
-                newGame(static_cast<Difficulty>(d));
+                _pending = d;
+                requestRedraw();
                 return;
             }
         }
@@ -298,6 +302,13 @@ void AppSudoku::handleTouch(uint16_t x, uint16_t y) {
 }
 
 void AppSudoku::update() {
+    if (_generateNow) {
+        _generateNow = false;
+        const Difficulty difficulty = static_cast<Difficulty>(_pending);
+        _pending = -1;
+        newGame(difficulty);
+        return;
+    }
     // The header shows whole minutes, so the panel changes once a minute at most.
     if (_view == VIEW_PLAYING && _runningSince && !_needsRedraw &&
         static_cast<int>(elapsedMs() / 60000) != _shownMinutes) {
@@ -309,8 +320,12 @@ void AppSudoku::update() {
 void AppSudoku::draw() {
     if (!_needsRedraw) return;
     _needsRedraw = false;
-    if (_view == VIEW_CHOOSING) drawChoosing();
-    else drawPlaying();
+    if (_view == VIEW_CHOOSING) {
+        drawChoosing();
+        if (_pending >= 0) _generateNow = true;
+    } else {
+        drawPlaying();
+    }
 }
 
 void AppSudoku::drawHeader(Book32Display& display, const Layout& l) {
@@ -432,10 +447,15 @@ void AppSudoku::drawChoosing() {
     Book32Display& display = DisplayMgr::getInstance().getDisplay();
     FontMgr& fontMgr = FontMgr::getInstance();
     const Layout l = layout();
-    display.setFullWindow();
+    // The "Generating..." step is a quick partial refresh over the chooser.
+    if (_pending >= 0 && !_fullRefresh) {
+        display.setPartialWindow(0, 0, display.width(), display.height());
+    } else {
+        display.setFullWindow();
+        _partialCount = 0;
+    }
     _fullRefresh = false;
     _headerOnly = false;
-    _partialCount = 0;
 
     display.firstPage();
     do {
@@ -446,11 +466,13 @@ void AppSudoku::drawChoosing() {
             const Difficulty difficulty = static_cast<Difficulty>(d);
             const Rect& r = l.choices[d];
             drawButton(display, {r.x, r.y, r.w, r.h - 30}, Sudoku::difficultyName(difficulty), FONT_SIZE_SUBTITLE,
-                       false);
-            char clues[24];
-            snprintf(clues, sizeof(clues), "%d+ clues", Sudoku::targetClues(difficulty));
-            fontMgr.drawTextCentered(display, clues, r.y + r.h - 6, FONT_SIZE_SMALL, GxEPD_BLACK);
+                       d == _pending);
+            fontMgr.drawTextCentered(display, Sudoku::difficultyHint(difficulty), r.y + r.h - 6, FONT_SIZE_SMALL,
+                                     GxEPD_BLACK);
         }
-        if (_hasGame) drawButton(display, l.cancel, "Back to the game", FONT_SIZE_MENU, false);
+        if (_pending >= 0)
+            drawCentered(display, "Generating...", l.cancel, FONT_SIZE_SUBTITLE, GxEPD_BLACK);
+        else if (_hasGame)
+            drawButton(display, l.cancel, "Back to the game", FONT_SIZE_MENU, false);
     } while (display.nextPage());
 }

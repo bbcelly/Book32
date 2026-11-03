@@ -40,6 +40,10 @@ private:
     uint32_t _elapsedMs = 0;        // play time before _runningSince
     unsigned long _runningSince = 0;  // 0 while the clock is stopped
     int _shownMinutes = -1;
+    // A difficulty picked on the chooser: "Generating..." is drawn first, then
+    // update() generates, since the harder levels can take a moment.
+    int _pending = -1;
+    bool _generateNow = false;
 
     bool _needsRedraw = false;
     bool _fullRefresh = true;

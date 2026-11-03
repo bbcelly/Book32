@@ -41,16 +41,32 @@ int main() {
     clash[0] = clash[1] = 5;
     assert(countSolutions(clash, 2) == 0);
 
-    // Generated puzzles: one solution, the clues agree with it, near the target.
+    // The rater: the classic puzzle above falls to singles alone, and the
+    // techniques reach the true solution.
+    parse("53..7....6..195....98....6.8...6...34..8.3..17...2...6.6....28....419..5....8..79", puzzle);
+    uint8_t logical[81];
+    assert(rate(puzzle, logical) == EASY);
+    memcpy(solution, puzzle, 81);
+    solve(solution);
+    assert(memcmp(logical, solution, 81) == 0);
+    // "Platinum Blonde", a well-known puzzle beyond these techniques.
+    parse(".......12........3..23..4....1....5..4.6..7.8...5.3.......8..6...7..4.21.3....5..", puzzle);
+    assert(rate(puzzle) == -1);
+
+    // Generated puzzles: one solution, the clues agree with it, and the
+    // rating is the level asked for; any rating the techniques finish must
+    // reach the true solution.
     Rng rng(12345);
     for (int d = 0; d < DIFFICULTY_COUNT; ++d) {
         const auto difficulty = static_cast<Difficulty>(d);
-        int worstClues = 0;
-        double slowestMs = 0;
-        for (int round = 0; round < 20; ++round) {
+        const int rounds = 30;
+        int hits = 0, minClues = 81, maxClues = 0;
+        double slowestMs = 0, totalMs = 0;
+        for (int round = 0; round < rounds; ++round) {
             const auto t0 = std::chrono::steady_clock::now();
-            generate(difficulty, rng, puzzle, solution);
+            const int rating = generate(difficulty, rng, puzzle, solution);
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            totalMs += ms;
             if (ms > slowestMs) slowestMs = ms;
             assert(validSolution(solution));
             int clues = 0;
@@ -60,11 +76,16 @@ int main() {
                 assert(puzzle[i] == solution[i]);
             }
             assert(countSolutions(puzzle, 2) == 1);
-            assert(clues >= targetClues(difficulty));
-            if (clues > worstClues) worstClues = clues;
+            assert(rate(puzzle, logical) == rating);
+            assert(rating >= 0 && rating <= d);
+            assert(memcmp(logical, solution, 81) == 0);
+            if (rating == d) ++hits;
+            if (clues < minClues) minClues = clues;
+            if (clues > maxClues) maxClues = clues;
         }
-        printf("%-6s target %d clues, worst %d, slowest %.1f ms\n", difficultyName(difficulty),
-               targetClues(difficulty), worstClues, slowestMs);
+        printf("%-6s %2d/%d at the level, clues %d-%d, avg %.1f ms, slowest %.1f ms\n",
+               difficultyName(difficulty), hits, rounds, minClues, maxClues, totalMs / rounds, slowestMs);
+        assert(hits >= rounds * 9 / 10);
     }
 
     // Game rules: clues are fixed, repeats are flagged, undo restores.
@@ -105,6 +126,6 @@ int main() {
     assert(game.notes(1) == 0 && game.notes(2) == ((1u << 1) | (1u << 9)));
     assert(game.difficulty() == MEDIUM && !game.canUndo());
 
-    puts("Sudoku PASS: solver, generator, rules, undo, restore");
+    puts("Sudoku PASS: solver, rater, generator, rules, undo, restore");
     return 0;
 }

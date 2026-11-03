@@ -10,9 +10,20 @@ namespace Sudoku {
 enum Difficulty : uint8_t { EASY = 0, MEDIUM, HARD, EXPERT, DIFFICULTY_COUNT };
 
 const char* difficultyName(Difficulty difficulty);
-// Clues the generator aims for. Removal stops earlier when every further
-// removal would allow a second solution.
-int targetClues(Difficulty difficulty);
+// One line on what the level asks of the player.
+const char* difficultyHint(Difficulty difficulty);
+
+// Difficulty is the hardest technique a human needs, not the clue count.
+// rate() solves the puzzle the way a person would, always with the simplest
+// technique that makes progress, and returns the level of the hardest one
+// it used:
+//   EASY    naked and hidden singles
+//   MEDIUM  + locked candidates (pointing and claiming)
+//   HARD    + naked and hidden pairs and triples
+//   EXPERT  + X-Wing, Swordfish and XY-Wing
+// -1 means these techniques do not finish it (it would need guessing).
+// `solvedOut`, if given, receives the grid the techniques reached.
+int rate(const uint8_t puzzle[81], uint8_t* solvedOut = nullptr);
 
 // Small deterministic PRNG (xorshift32); the app seeds it from the hardware.
 class Rng {
@@ -30,8 +41,13 @@ int countSolutions(const uint8_t grid[81], int limit);
 // Fills `grid` with its first solution; false when it has none.
 bool solve(uint8_t grid[81]);
 
-// A puzzle with exactly one solution. `puzzle` holds the clues.
-void generate(Difficulty difficulty, Rng& rng, uint8_t puzzle[81], uint8_t solution[81]);
+// A puzzle with exactly one solution whose rate() is `difficulty`.
+// `puzzle` holds the clues. Candidates that rate differently are thrown
+// away; after `maxAttempts` the closest easier one is kept. `tick` (if set)
+// runs between attempts so a device can feed its watchdog. Returns the
+// puzzle's rating.
+int generate(Difficulty difficulty, Rng& rng, uint8_t puzzle[81], uint8_t solution[81],
+             int maxAttempts = 400, void (*tick)() = nullptr);
 
 // One game in progress: clues, the player's digits, pencil marks and undo.
 class Game {
