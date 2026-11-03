@@ -34,6 +34,8 @@ not updated with the ESP32 releases.
   both, plus NES on the LILYGO. No games are included.
 - **Klipper monitor** for 3D printers on your network.
 - **Todo list.**
+- **Sudoku** (touch boards): classic 9x9 puzzles generated on the device in
+  four difficulties, with notes, undo and the game saved between sessions.
 - **Web interface** for uploading books and games, changing settings and
   updating the firmware.
 - **Sleep screen** showing the cover of the book you are reading in grayscale,

@@ -113,6 +113,8 @@ function getApps() {
             document.getElementById('app-klipper').checked = data.klipper === true;
             document.getElementById('app-inkade').checked = data.inkade === true;
             document.getElementById('app-inkade-choice').classList.toggle('hidden', data.inkadeAvailable !== true);
+            document.getElementById('app-sudoku').checked = data.sudoku === true;
+            document.getElementById('app-sudoku-choice').classList.toggle('hidden', data.sudokuAvailable !== true);
         })
         .catch(error => console.error('Error loading apps:', error));
 }
@@ -128,6 +130,7 @@ function saveApps() {
             todo: document.getElementById('app-todo').checked,
             klipper: document.getElementById('app-klipper').checked,
             inkade: document.getElementById('app-inkade').checked,
+            sudoku: document.getElementById('app-sudoku').checked,
         }),
     })
         .then(response => response.json())

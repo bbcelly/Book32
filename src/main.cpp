@@ -25,6 +25,7 @@
 #include "../Apps/AppReader/AppReader.h"
 #include "../Apps/AppKlipper/AppKlipper.h"
 #include "../Apps/AppTodo/AppTodo.h"
+#include "../Apps/AppSudoku/AppSudoku.h"
 #if BOOK32_HAS_TOUCH
 #include "../Apps/AppWifi/AppWifi.h"
 #endif
@@ -260,6 +261,7 @@ void setup() {
     if (selection.enabled(AppSelection::TODO)) appMgr.registerApp(new AppTodo());
     if (selection.enabled(AppSelection::KLIPPER)) appMgr.registerApp(new AppKlipper());
 #if BOOK32_HAS_TOUCH
+    if (selection.enabled(AppSelection::SUDOKU)) appMgr.registerApp(new AppSudoku());
     appMgr.registerApp(new AppWifi());
 #endif
 #if BOOK32_HAS_INKBOY

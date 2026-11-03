@@ -488,6 +488,7 @@ void WebMgr::setupEndpoints() {
             enabled["todo"] = apps.enabled(AppSelection::TODO);
             enabled["klipper"] = apps.enabled(AppSelection::KLIPPER);
             enabled["inkade"] = BOOK32_HAS_INKBOY && apps.enabled(AppSelection::INKADE);
+            enabled["sudoku"] = BOOK32_HAS_TOUCH && apps.enabled(AppSelection::SUDOKU);
         }
 #if BOOK32_HAS_INKBOY
         doc["romUpload"] = AppSelection::getInstance().enabled(AppSelection::INKADE);
@@ -910,6 +911,8 @@ void WebMgr::setupEndpoints() {
         doc["klipper"] = apps.enabled(AppSelection::KLIPPER);
         doc["inkade"] = BOOK32_HAS_INKBOY && apps.enabled(AppSelection::INKADE);
         doc["inkadeAvailable"] = bool(BOOK32_HAS_INKBOY);
+        doc["sudoku"] = BOOK32_HAS_TOUCH && apps.enabled(AppSelection::SUDOKU);
+        doc["sudokuAvailable"] = bool(BOOK32_HAS_TOUCH);
         serializeJson(doc, *response);
         request->send(response);
     });
@@ -920,6 +923,7 @@ void WebMgr::setupEndpoints() {
             if (json["todo"] | false) mask |= AppSelection::TODO;
             if (json["klipper"] | false) mask |= AppSelection::KLIPPER;
             if (json["inkade"] | false) mask |= AppSelection::INKADE;
+            if (json["sudoku"] | false) mask |= AppSelection::SUDOKU;
             if (!AppSelection::getInstance().save(mask)) {
                 request->send(500, "application/json", "{\"status\":\"error\"}");
                 return;

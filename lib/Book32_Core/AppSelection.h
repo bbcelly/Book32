@@ -12,8 +12,11 @@
 // (updated over the air from older versions) keep every app.
 class AppSelection {
 public:
-    enum App : uint8_t { TODO = 0x01, KLIPPER = 0x02, INKADE = 0x04 };
-    static constexpr uint8_t ALL = TODO | KLIPPER | INKADE;
+    enum App : uint8_t { TODO = 0x01, KLIPPER = 0x02, INKADE = 0x04, SUDOKU = 0x08 };
+    static constexpr uint8_t ALL = TODO | KLIPPER | INKADE | SUDOKU;
+    // The apps that existed before Sudoku: what older saves and installer
+    // version 1 records could choose from.
+    static constexpr uint8_t ALL_V1 = TODO | KLIPPER | INKADE;
 
     static AppSelection& getInstance();
 
