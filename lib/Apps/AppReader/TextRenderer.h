@@ -88,7 +88,7 @@ private:
     bool _hasCachedResult = false;
     
     // Fast character width cache
-    uint8_t _gfxCharWidths[256];  // Indexed by Windows-1252 byte
+    uint8_t _gfxCharWidths[256];  // Indexed by Windows-1250 byte
     const GFXfont* _lastGFXFont = nullptr;
 
     const GFXfont* getGFXFont(TextStyle style, int& lineHeight);

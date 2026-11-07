@@ -11,16 +11,17 @@ OUTPUT = ROOT / "lib" / "Apps" / "AppReader" / "fonts" / "OpenSansGFXFonts.h"
 DPI = 141
 FIRST_CHAR = 0x20
 LAST_CHAR = 0xFF
-# Fonts are indexed by Windows-1252 byte so Adafruit GFX's 8-bit write() can
-# reach Latin-1 letters (umlauts, accents) and the 0x80-0x9F typographic
-# punctuation. Undefined slots, controls and the soft hyphen stay blank.
-BLANK_CODES = {0x7F, 0x81, 0x8D, 0x8F, 0x90, 0x9D, 0xAD}
+# Fonts are indexed by Windows-1250 byte so Adafruit GFX's 8-bit write() can
+# reach Central European letters (Czech, Slovak, Polish, Hungarian, German)
+# and the 0x80-0x9F typographic punctuation. Undefined slots, controls and
+# the soft hyphen stay blank. Must match CP1250_HIGH in TextRenderer.cpp.
+BLANK_CODES = {0x7F, 0x81, 0x83, 0x88, 0x90, 0x98, 0xAD}
 
 
 def font_character(code: int) -> str:
     if code in BLANK_CODES:
         return ""
-    return bytes([code]).decode("cp1252")
+    return bytes([code]).decode("cp1250")
 
 
 def pack_bitmap(image: Image.Image) -> list[int]:
